@@ -1,0 +1,132 @@
+{
+  "commit": "c849886ebc6d48e7b46d967e78a6bb65c90c3b74",
+  "upstreamFiles": [
+    {
+      "path": "COPYING",
+      "sha": "b6a0e663fa262031f2c407781696b3b317ce0d5d",
+      "size": 483
+    },
+    {
+      "path": "LICENSES/Apache-2.0",
+      "sha": "325c59c97b4b1f11cc3ec8b19ee0fce05b934c13",
+      "size": 10001
+    },
+    {
+      "path": "LICENSES/BSD-3-Clause",
+      "sha": "3789c3e4a32520d505c59893cfd4ad7bcae0e6d7",
+      "size": 1844
+    },
+    {
+      "path": "LICENSES/GPL-3.0-or-later",
+      "sha": "b7b2bd95e18b3c71bce4d2e8a244d5214f5c99a5",
+      "size": 35657
+    },
+    {
+      "path": "LICENSES/MIT",
+      "sha": "2827cab61b40f5ca1c23698382748d97715e1c4f",
+      "size": 1568
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AbsAdbConnectionManager.java",
+      "sha": "967c47a4b0e74f0e5bef23cfdc4552d95cfd977e",
+      "size": 21556
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbAuthenticationFailedException.java",
+      "sha": "bf50eeb967b508447e9d760c568bfedda549cb16",
+      "size": 504
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbConnection.java",
+      "sha": "a21cb66e8b5079515bb175df42e090a50c0101fd",
+      "size": 29766
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbInputStream.java",
+      "sha": "6d0676f86d787a35dc04ff2f525c3b368b9b069f",
+      "size": 969
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbOutputStream.java",
+      "sha": "189473592e75d3265efa253f375b7d2a599523b1",
+      "size": 874
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbPairingRequiredException.java",
+      "sha": "f324cb082135f92e0bfdf27fb1c9cc6a89ce2dc1",
+      "size": 188
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbProtocol.java",
+      "sha": "4c5820601a786c2afcfac4e7efcb921a451a0538",
+      "size": 16666
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AdbStream.java",
+      "sha": "6d24c06b58e71741fc3b3af00db387ff59316f6d",
+      "size": 9576
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/AndroidPubkey.java",
+      "sha": "6aa12aa680c4b9b85319452feef1e7a2ffb76f1d",
+      "size": 10620
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/ByteArrayNoThrowOutputStream.java",
+      "sha": "55cc1bf91c7c1ae92d09fcf6c735b40e62c62f93",
+      "size": 486
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/KeyPair.java",
+      "sha": "4574d8b81c1a4f62d0715350e4fc6a0b642adc1a",
+      "size": 922
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/LocalServices.java",
+      "sha": "523bce3a6880710a5ba8387a36e1bdb961add9ce",
+      "size": 11253
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/PRNGFixes.java",
+      "sha": "fe6343f81fc3b588e3478d62a1fed7539252494e",
+      "size": 11877
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/PairingAuthCtx.java",
+      "sha": "a329c29c37ee646d026fce25e3b164936066d0e9",
+      "size": 5085
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/PairingConnectionCtx.java",
+      "sha": "732a08ef46ea4e659e69f392ae3eac1fedd62426",
+      "size": 14902
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/SslUtils.java",
+      "sha": "aea4e6f88bb0ba5127bb7d0a22f19391ea90618b",
+      "size": 4391
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/StringCompat.java",
+      "sha": "1e05eeed36c7ff459530978997782fd9a2af5dd9",
+      "size": 845
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/android/AdbMdns.java",
+      "sha": "6b424cbbe52b4af7344a2ade8fbc5882e28e5658",
+      "size": 6281
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/android/AndroidUtils.java",
+      "sha": "bb679d2fe92dc92e91229987044a986dc8793def",
+      "size": 2056
+    },
+    {
+      "path": "libadb/src/main/java/io/github/muntashirakon/adb/android/package.html",
+      "sha": "704dd2658fa7347ce00293a4a0b2189ea15f44c4",
+      "size": 79
+    }
+  ],
+  "licenseChoice": "Apache-2.0",
+  "repository": "https://github.com/MuntashirAkon/libadb-android"
+}

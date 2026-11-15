@@ -35,6 +35,8 @@ public final class CaptureClaimService extends Service {
     private boolean receiverRegistered;
     private boolean finished;
 
+    public static boolean isExperimentActive() { return held || starting; }
+
     static String experimentSnapshot() {
         boolean heldNow = held;
         boolean startingNow = starting;

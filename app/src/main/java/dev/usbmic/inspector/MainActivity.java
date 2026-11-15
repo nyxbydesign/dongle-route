@@ -101,7 +101,9 @@ public final class MainActivity extends Activity {
             return insets;
         });
         setContentView(scroll);
-        label(body, "USB Mic Inspector", 26);
+        label(body, "DongleRoute", 26);
+        button(body, "Automatic microphone routing", view -> startActivity(new Intent(this,
+                dev.usbmic.inspector.automation.AutomationActivity.class)));
         label(body, "Diagnostic prototype. No proven system-wide microphone fix. Tests run only when you tap a button. No audio is saved or sent.", 16);
         status = label(body, CaptureClaimService.status, 15);
         button(body, "Refresh device inventory", view -> inventory());
@@ -174,7 +176,7 @@ public final class MainActivity extends Activity {
     }
 
     private String completeReport() {
-        return "USB Mic Inspector 0.3-diagnostic\nNo global routing result has been established by this report.\n"
+        return "DongleRoute 0.4-diagnostic\nNo global routing result has been established by this report.\n"
                 + "Current experiment snapshot (best effort): " + CaptureClaimService.experimentSnapshot() + "\n"
                 + ExperimentHistory.snapshot() + "\nCurrent activity diagnostics:\n" + report;
     }
@@ -283,6 +285,10 @@ public final class MainActivity extends Activity {
     }
 
     private boolean readyForProbe() {
+        if (dev.usbmic.inspector.automation.RoutingService.running) {
+            append("Stop automatic microphone routing before running local diagnostic probes or the capture experiment.");
+            return false;
+        }
         if (probing || CaptureClaimService.starting) { append("Another test is running."); return false; }
         if (audio.getMode() != AudioManager.MODE_NORMAL || !audio.getActiveRecordingConfigurations().isEmpty()) {
             append("Call/audio activity detected; local test refused. End calls and recordings first.");
@@ -425,6 +431,10 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmClaim() {
+        if (dev.usbmic.inspector.automation.RoutingService.running) {
+            append("Stop automatic microphone routing before using the separate capture experiment.");
+            return;
+        }
         if (!readyForProbe() || selected == null || candidateId < 0 || descriptorHash == null) return;
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2);

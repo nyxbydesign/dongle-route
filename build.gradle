@@ -1,3 +1,23 @@
 plugins {
     id 'com.android.application' version '8.7.3' apply false
+    id 'com.android.library' version '8.7.3' apply false
+}
+
+// This focused JVM parser test uses real org.json and no Android mock/stub classpath.
+configurations { routingProtocolTestDependencies }
+dependencies { routingProtocolTestDependencies 'org.json:json:20240303' }
+def protocolClasses = layout.buildDirectory.dir('routing-protocol-tests/classes')
+tasks.register('compileRoutingProtocolTests', JavaCompile) {
+    source = files('app/src/main/java/dev/usbmic/inspector/automation/RoutingProtocol.java',
+            'tests/routing-protocol/RoutingProtocolTest.java')
+    classpath = configurations.routingProtocolTestDependencies
+    destinationDirectory = protocolClasses
+    sourceCompatibility = '11'
+    targetCompatibility = '11'
+    options.encoding = 'UTF-8'
+}
+tasks.register('routingProtocolTests', JavaExec) {
+    dependsOn 'compileRoutingProtocolTests'
+    classpath = configurations.routingProtocolTestDependencies + files(protocolClasses)
+    mainClass = 'dev.usbmic.inspector.automation.RoutingProtocolTest'
 }

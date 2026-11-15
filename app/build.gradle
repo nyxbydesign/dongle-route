@@ -7,11 +7,60 @@ android {
         applicationId 'dev.usbmic.inspector'
         minSdk 34
         targetSdk 35
-        versionCode 3
-        versionName '0.3-diagnostic'
+        versionCode 4
+        versionName '0.4-diagnostic'
+        testInstrumentationRunner 'dev.usbmic.inspector.LocalAdbSmokeInstrumentation'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+    packaging { jniLibs { useLegacyPackaging = false } }
 }
+
+dependencies { implementation project(':localadb') }
+
+def helperSources = rootProject.fileTree('routing-helper/src/main/java') { include '**/*.java' }
+def helperClasses = layout.buildDirectory.dir('routing-helper/classes')
+def helperAssets = layout.buildDirectory.dir('generated/routing-helper-assets')
+def helperDex = layout.buildDirectory.dir('routing-helper/dex')
+
+tasks.register('compileRoutingHelper', JavaCompile) {
+    source = helperSources
+    classpath = files(android.bootClasspath)
+    destinationDirectory = helperClasses
+    sourceCompatibility = '1.8'
+    targetCompatibility = '1.8'
+    options.encoding = 'UTF-8'
+    options.bootstrapClasspath = files(android.bootClasspath)
+}
+
+tasks.register('dexRoutingHelper') {
+    dependsOn 'compileRoutingHelper'
+    inputs.files(helperSources)
+    outputs.file(helperAssets.map { it.file('routing-helper.jar') })
+    doLast {
+        def classesDir = helperClasses.get().asFile
+        def dexDir = helperDex.get().asFile
+        def assetsDir = helperAssets.get().asFile
+        dexDir.mkdirs()
+        assetsDir.mkdirs()
+        def d8Jar = new File(android.sdkDirectory, 'build-tools/35.0.0/lib/d8.jar')
+        def classFiles = fileTree(classesDir) { include '**/*.class' }.files.collect { it.absolutePath }.sort()
+        if (classFiles.isEmpty()) throw new GradleException('Routing helper source produced no classes')
+        javaexec {
+            classpath = files(d8Jar)
+            mainClass = 'com.android.tools.r8.D8'
+            maxHeapSize = '512m'
+            args '--min-api', '34', '--lib', android.bootClasspath.first().absolutePath, '--output', dexDir.absolutePath
+            args classFiles
+        }
+        ant.zip(destfile: new File(assetsDir, 'routing-helper.jar')) {
+            fileset(dir: dexDir) { include(name: 'classes*.dex') }
+        }
+    }
+}
+
+android.sourceSets.main.assets.srcDir(helperAssets)
+tasks.named('preBuild').configure { dependsOn 'dexRoutingHelper' }

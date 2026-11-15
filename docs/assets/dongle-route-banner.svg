@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">DongleRoute — USB audio, on your terms</title>
+  <desc id="desc">A violet phone microphone and a teal USB audio dongle follow separate routes across a dark background. Detect, inspect and configure USB audio.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="480" gradientUnits="userSpaceOnUse"><stop stop-color="#18132D"/><stop offset=".55" stop-color="#100E1D"/><stop offset="1" stop-color="#112529"/></linearGradient>
+    <linearGradient id="purple" x1="60" y1="40" x2="420" y2="400" gradientUnits="userSpaceOnUse"><stop stop-color="#E2B7FF"/><stop offset="1" stop-color="#9173F5"/></linearGradient>
+    <linearGradient id="panel" x1="700" y1="90" x2="1080" y2="400" gradientUnits="userSpaceOnUse"><stop stop-color="#332A4B"/><stop offset="1" stop-color="#171822"/></linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#CCC0E4" opacity=".08"/></pattern>
+    <filter id="glow"><feGaussianBlur stdDeviation="30"/></filter>
+  </defs>
+  <rect width="1200" height="480" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="480" rx="28" fill="url(#dots)"/>
+  <ellipse cx="850" cy="190" rx="190" ry="120" fill="#9465EF" opacity=".1" filter="url(#glow)"/>
+  <ellipse cx="1070" cy="350" rx="120" ry="90" fill="#65E3D0" opacity=".08" filter="url(#glow)"/>
+  <path d="M58 62H118M58 62V122M1142 358V418H1082" stroke="#B49DDB" stroke-opacity=".18"/>
+  <g font-family="Segoe UI, Inter, Arial, sans-serif">
+    <rect x="66" y="82" width="160" height="28" rx="14" fill="#B79BEF" fill-opacity=".1" stroke="#C0A0FA" stroke-opacity=".22"/>
+    <text x="146" y="101" text-anchor="middle" fill="#D1B9F3" font-size="11" font-weight="600" letter-spacing="2">ANDROID · LOCAL ADB</text>
+    <text x="60" y="201" fill="#F2ECFF" font-size="70" font-weight="700" letter-spacing="-3">Dongle<tspan fill="url(#purple)">Route</tspan></text>
+    <text x="65" y="250" fill="#D6CBDF" font-size="26" font-weight="400">USB audio, on your terms.</text>
+    <text x="66" y="296" fill="#9D94AE" font-size="17">Detect your dongle. Choose your phone mic.</text>
+    <path d="M66 330H504" stroke="#B9A6D6" stroke-opacity=".15"/>
+    <text x="66" y="366" fill="#C6AFEB" font-size="12" letter-spacing="2.2">DETECT</text><circle cx="156" cy="361" r="2" fill="#736582"/>
+    <text x="176" y="366" fill="#C6AFEB" font-size="12" letter-spacing="2.2">INSPECT</text><circle cx="278" cy="361" r="2" fill="#736582"/>
+    <text x="298" y="366" fill="#95DBD0" font-size="12" letter-spacing="2.2">CONFIGURE</text>
+    <text x="66" y="419" fill="#756B86" font-size="11" letter-spacing="1.6">A NYX BY DESIGN PROJECT</text>
+  </g>
+  <path d="M790 216H895Q928 216 928 183V158Q928 140 948 140H1000" stroke="#B899EF" stroke-width="3" stroke-linecap="round"/>
+  <path d="M790 307H844Q871 307 871 334V347Q871 369 898 369H1002" stroke="#74D8C5" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="881" cy="216" r="5" fill="#D4B4FF"/>
+  <circle cx="939" cy="369" r="5" fill="#8CEAD7"/>
+  <rect x="674" y="108" width="148" height="260" rx="27" fill="#090A12" stroke="#76618E" stroke-width="2"/>
+  <rect x="684" y="119" width="128" height="237" rx="20" fill="url(#panel)"/>
+  <rect x="726" y="128" width="44" height="5" rx="2.5" fill="#675875"/>
+  <rect x="703" y="165" width="90" height="101" rx="15" fill="#C8A4FF" fill-opacity=".07" stroke="#BE9AF4" stroke-opacity=".2"/>
+  <rect x="739" y="184" width="18" height="34" rx="9" stroke="#D6B4FF" stroke-width="3"/>
+  <path d="M731 209V213C731 223 739 230 748 230C757 230 765 223 765 213V209M748 230V241M739 241H757" stroke="#D6B4FF" stroke-width="3" stroke-linecap="round"/>
+  <path d="M708 304H716L720 292L726 315L732 286L739 320L746 279L754 324L762 289L769 313L775 299H790" stroke="#8CD8CD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="748" cy="376" r="3" fill="#857093"/>
+  <g transform="translate(1002 111)">
+    <rect width="91" height="68" rx="16" fill="#211D30" stroke="#AB8DD4" stroke-opacity=".5"/>
+    <rect x="39" y="12" width="13" height="25" rx="6.5" stroke="#D0ADF7" stroke-width="2"/>
+    <path d="M32 29V32C32 40 38 45 45.5 45C53 45 59 40 59 32V29M45.5 45V53M39 53H52" stroke="#D0ADF7" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(990 327)">
+    <rect x="0" y="7" width="115" height="70" rx="17" fill="#152B2C" stroke="#80D6C6" stroke-opacity=".45"/>
+    <rect x="-13" y="31" width="19" height="21" rx="5" fill="#7EB7AF"/><path d="M-7 36V47" stroke="#142726" stroke-width="2"/>
+    <path d="M40 46V39C40 29 48 22 58 22C68 22 76 29 76 39V46M40 41H45V57H39C36 57 34 55 34 52V46C34 43 36 41 40 41ZM76 41H71V57H77C80 57 82 55 82 52V46C82 43 80 41 76 41Z" stroke="#9DE4D5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g font-family="Segoe UI, Inter, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="1.4">
+    <text x="1047" y="204" text-anchor="middle" fill="#B6A0D2">PHONE MIC</text>
+    <text x="1047" y="429" text-anchor="middle" fill="#8BBAB1">USB OUTPUT</text>
+  </g>
+</svg>

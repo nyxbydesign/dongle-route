@@ -1,0 +1,34 @@
+DongleRoute embedded local ADB transport
+
+LibADB Android 3.1.1, copyright 2021 Muntashir Al-Islam.
+The Apache-2.0 alternative is selected. Some components additionally carry
+BSD-3-Clause attribution, copyright 2013 Cameron Gutman, and MIT notices.
+Upstream and modifications: localadb/UPSTREAM-PATCHES.md in the app source.
+https://github.com/MuntashirAkon/libadb-android/tree/3.1.1
+
+SPAKE2 Android 2.2.1, copyright 2021 Muntashir Al-Islam, LGPL-3.0.
+https://github.com/MuntashirAkon/spake2-java/tree/2.2.1
+Commit 7615ddd680b990e14513ebb66eac4cb0dbf82464.
+SPAKE2 contains native C/JNI and CC0-derived ED25519 implementations as
+described in its source. The native Android implementation is linked here.
+This app's complete source/build instructions are available at:
+https://github.com/nyxbydesign/dongle-route
+Build a modified SPAKE2 AAR from its corresponding source and replace the pinned
+dependency in localadb/build.gradle, then rebuild the app using the documented
+Gradle command. Debugging modifications to the linked library is permitted.
+The LGPL and its incorporated GPL text accompany this application.
+
+Conscrypt Android 2.9.0, The Conscrypt Authors, Apache-2.0.
+https://github.com/google/conscrypt/tree/2.9.0
+Its native TLS implementation incorporates BoringSSL; retain the corresponding
+source and license notices when rebuilding Conscrypt.
+
+BouncyCastle bcprov-jdk15to18 1.87, The Legion of the Bouncy Castle Inc.,
+MIT-style license. Its matching source-release license accompanies this app.
+https://www.bouncycastle.org/about/license/
+
+AndroidX annotations 1.9.1, The Android Open Source Project, Apache-2.0.
+https://developer.android.com/jetpack/androidx/releases/annotation
+
+Library licenses and source availability do not establish physical-phone
+compatibility. See the project README for actual verification and limitations.
