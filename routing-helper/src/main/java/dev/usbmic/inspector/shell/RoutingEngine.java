@@ -63,7 +63,7 @@ public final class RoutingEngine {
     }
 
     public static final class Observation {
-        public final boolean authorized, idle, safeInventory, attached;
+        public final boolean authorized, idle, safeInventory, attached, inventorySettling;
         public final Device bottom;
         public final Device requestedMicrophone;
         public final boolean microphoneRequestProvided;
@@ -76,12 +76,24 @@ public final class RoutingEngine {
         public Observation(boolean authorized, boolean idle, boolean safeInventory, boolean attached,
                            Device bottom, String attachmentKey, Preference mic, Preference voice,
                            Device requestedMicrophone, boolean microphoneRequestProvided) {
+            this(authorized, idle, safeInventory, attached, bottom, attachmentKey, mic, voice,
+                    requestedMicrophone, microphoneRequestProvided, false);
+        }
+        public Observation(boolean authorized, boolean idle, boolean safeInventory, boolean attached,
+                           Device bottom, String attachmentKey, Preference mic, Preference voice,
+                           Device requestedMicrophone, boolean microphoneRequestProvided, boolean inventorySettling) {
             this.authorized = authorized; this.idle = idle; this.safeInventory = safeInventory;
             this.attached = attached; this.bottom = bottom; this.attachmentKey = attachmentKey;
             this.preferences = new Preference[]{mic, voice};
             this.requestedMicrophone = requestedMicrophone;
             this.microphoneRequestProvided = microphoneRequestProvided;
+            this.inventorySettling = inventorySettling;
         }
+    }
+
+    /** A known inventory transition requires reconciliation before any further write. */
+    public static final class InventoryTransition extends Exception {
+        public InventoryTransition() { super("Selected USB inventory is settling"); }
     }
 
     public static final class Write {
@@ -169,7 +181,7 @@ public final class RoutingEngine {
             if (!initial.authorized) return result(false, "blocked", "Shell UID or routing permissions unavailable.", pending());
             if (session != null && !STOPPED.equals(session.phase) && !session.pending()
                     && !"stop".equals(action) && microphoneId != null
-                    && (!initial.microphoneRequestProvided || !session.bottom.equals(initial.requestedMicrophone))) {
+                    && initial.requestedMicrophone != null && !session.bottom.equals(initial.requestedMicrophone)) {
                 return result(false, "blocked", "Stop the previous microphone session before changing or refreshing its selection.", pending());
             }
             if (session != null && !STOPPED.equals(session.phase) && selected != null
@@ -195,14 +207,20 @@ public final class RoutingEngine {
                         ? "Interrupted operation reconciled; originals restored. Enable again deliberately."
                         : "Deferred restoration completed; original input preferences restored.", !session.recoveryBlocked);
             }
+            if (initial.inventorySettling) {
+                if (session != null && ACTIVE.equals(session.phase) && !reconcile(initial)) return conflict();
+                return waiting();
+            }
             if ("defaults".equals(action)) return defaults(effective, initial);
             if (effective == null) return result(false, "blocked", "Choose the DAC before enabling automation.", pending());
             if (!initial.safeInventory) return result(false, "blocked", "USB inventory is ambiguous or does not match the selected DAC.", pending());
             if (session != null && ACTIVE.equals(session.phase)) {
                 if (!reconcile(initial)) return conflict();
-                if (!initial.attached) {
+                if (!validMicrophone(initial.bottom) || !session.bottom.equals(initial.bottom)) return missingMicrophone();
+                if (!initial.attached || !Objects.equals(session.attachmentKey, initial.attachmentKey)) {
                     session.phase = RESTORING; store.save(session);
-                    return restore("DAC detached; original input preferences restored.", true);
+                    return restore(initial.attached ? "DAC re-enumerated; previous input preferences restored before reapplying."
+                            : "DAC detached; original input preferences restored.", true);
                 }
                 if (!initial.idle) return result(true, "busy", "Call or recording active; no routing writes.", false);
                 return result(true, "active", "Owned preferences remain verified. Actual app microphone routing needs separate verification.", false);
@@ -222,6 +240,7 @@ public final class RoutingEngine {
         if (!observation.authorized) return result(false, "blocked", "Shell UID or routing permissions unavailable.", pending());
         if (session == null || STOPPED.equals(session.phase)) return result(true, "idle", "No active helper ownership. Status made no writes.", false);
         if (CONFLICT.equals(session.phase)) return result(false, "conflict", "External preference change recorded; status made no writes.", false);
+        if (observation.inventorySettling) return waiting();
         if (session.pending()) return result(true, observation.idle ? "idle" : "busy", "Interrupted or deferred restoration requires Stop. Status made no writes.", true);
         for (int i = 0; i < 2; i++) {
             Preference expected = session.steps[i] == OWNED ? session.desired : session.originals[i];
@@ -231,6 +250,7 @@ public final class RoutingEngine {
     }
 
     private Result defaults(Selection selected, Observation observation) throws Exception {
+        if (observation.inventorySettling) return waiting();
         if (!observation.safeInventory) return result(false, "blocked", "Choose the single connected DAC before clearing defaults.", pending());
         if (!observation.idle) return result(true, "busy", "Call or recording active; Android defaults are deferred.", true);
         if (!validMicrophone(observation.bottom)) return missingMicrophone();
@@ -258,6 +278,7 @@ public final class RoutingEngine {
             for (int i = 0; i < 2; i++) {
                 Observation current = observe(session.selection);
                 if (!reconcile(current)) return conflict();
+                if (current.inventorySettling) throw new InventoryTransition();
                 if (!current.idle) {
                     session.recoveryBlocked = true;
                     session.phase = RESTORING; store.save(session);
@@ -275,6 +296,9 @@ public final class RoutingEngine {
             }
             Observation finalState = observe(session.selection);
             if (!reconcile(finalState)) return conflict();
+            if (finalState.inventorySettling) throw new InventoryTransition();
+            if (!session.defaults && finalState.safeInventory && (!finalState.attached
+                    || !Objects.equals(session.attachmentKey, finalState.attachmentKey))) throw new InventoryTransition();
             if (session.defaults) {
                 session.phase = STOPPED;
                 session.steps = new int[]{RESTORED, RESTORED};
@@ -283,6 +307,10 @@ public final class RoutingEngine {
             }
             session.phase = ACTIVE; store.save(session);
             return result(true, "active", "MIC and VOICE_COMMUNICATION prefer the selected built-in microphone. USB output was not changed; actual app routing still needs verification.", false);
+        } catch (InventoryTransition transition) {
+            session.phase = RESTORING;
+            store.save(session);
+            return waiting();
         } catch (Exception failure) {
             session.recoveryBlocked = true;
             session.phase = RESTORING;
@@ -298,11 +326,13 @@ public final class RoutingEngine {
         Observation current = observe(session.selection);
         if (!reconcile(current)) return conflict();
         if (!current.idle) return result(true, "busy", "Call or recording active; original-state restoration is deferred.", true);
+        if (current.inventorySettling) return waiting();
         requireWritable(current, false);
         for (int i = 0; i < 2; i++) {
             current = observe(session.selection);
             if (!reconcile(current)) return conflict();
             if (!current.idle) return result(true, "busy", "Audio became busy; original-state restoration remains pending.", true);
+            if (current.inventorySettling) return waiting();
             requireWritable(current, false);
             if (session.steps[i] != OWNED && session.steps[i] != RESTORE_INTENT) continue;
             if (session.originals[i].equals(current.preferences[i])) {
@@ -313,6 +343,8 @@ public final class RoutingEngine {
             try {
                 writeAttempts++;
                 backend.write(new Write(i, session.desired, session.originals[i], session, false));
+            } catch (InventoryTransition transition) {
+                return waiting();
             } catch (Exception failure) {
                 Observation afterFailure = observe(session.selection);
                 if (!reconcile(afterFailure)) return conflict();
@@ -359,9 +391,17 @@ public final class RoutingEngine {
     }
 
     private Observation observe(Selection selected) throws Exception {
-        Device retained = session != null && !STOPPED.equals(session.phase) ? session.bottom : null;
+        boolean stoppedTarget = session != null && STOPPED.equals(session.phase) && !session.defaults
+                && !session.recoveryBlocked && Objects.equals(selected, session.selection);
+        Device retained = session != null && (!STOPPED.equals(session.phase) || stoppedTarget) ? session.bottom : null;
         Integer requested = "stop".equals(currentAction) || (session != null && session.pending()) ? null : selectedMicrophoneId;
         Observation observation = backend.observe(selected, retained, requested);
+        // A new explicit valid selection after Stop wins; a stale ID after reconnect keeps the
+        // previously verified canonical microphone rather than guessing a different input.
+        if (stoppedTarget && observation != null && observation.requestedMicrophone != null
+                && !session.bottom.equals(observation.requestedMicrophone)) {
+            observation = backend.observe(selected, null, requested);
+        }
         if (observation == null || observation.preferences[0] == null || observation.preferences[1] == null) {
             throw new IllegalStateException("Unknown preference query");
         }
@@ -369,7 +409,11 @@ public final class RoutingEngine {
         return observation;
     }
 
-    private void requireWritable(Observation current, boolean attached) {
+    private void requireWritable(Observation current, boolean attached) throws InventoryTransition {
+        if (current.authorized && current.idle && (current.inventorySettling || (current.safeInventory
+                && attached && (!current.attached || !Objects.equals(session.attachmentKey, current.attachmentKey))))) {
+            throw new InventoryTransition();
+        }
         if (!current.authorized || !current.idle || !current.safeInventory
                 || !session.bottom.equals(current.bottom) || (attached && (!current.attached
                 || !Objects.equals(session.attachmentKey, current.attachmentKey)))) {
@@ -382,6 +426,9 @@ public final class RoutingEngine {
     }
     private Result missingMicrophone() {
         return result(false, "blocked", "Built-in microphone selection is missing or ambiguous. Choose a unique built-in input.", pending());
+    }
+    private Result waiting() {
+        return result(true, "waiting", "Waiting for the selected USB device to finish connecting or disconnecting; no routing writes.", pending());
     }
     private boolean pending() { return session != null && (session.pending() || session.owned() > 0); }
     private Result result(boolean ok, String state, String message, boolean pending) {

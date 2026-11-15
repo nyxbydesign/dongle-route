@@ -20,21 +20,24 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** One serialized, process-local owner of the embedded ADB connection. */
-final class AutomationSession {
+class AutomationSession {
     private static AutomationSession instance;
     private final Context context;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean working = new AtomicBoolean();
+    private final AtomicInteger connectionAttempt = new AtomicInteger();
     private volatile LocalAdbClient client;
     private RoutingBridge bridge;
     private volatile boolean restorationUnresolved = true;
     volatile RoutingProtocol.Result lastRoutingResult;
     volatile String connectionStatus = "Disconnected. Pair and connect using this app's own identity.";
+    volatile int connectionResultVersion;
 
-    private AutomationSession(Context context) {
+    AutomationSession(Context context) {
         this.context = context.getApplicationContext();
         restorationUnresolved = preferences().getBoolean("may_need_restore", false);
     }
@@ -78,6 +81,10 @@ final class AutomationSession {
         int port = preferences().getInt("last_connection_port", 0);
         return port > 0 && port <= 65535 ? Integer.toString(port) : "";
     }
+    boolean wantsConnection() { return preferences().getBoolean("connection_requested", false); }
+    boolean setConnectionWanted(boolean wanted) {
+        return preferences().edit().putBoolean("connection_requested", wanted).commit();
+    }
 
     private LocalAdbClient client() throws IOException {
         if (client == null) client = new LocalAdbClient(context);
@@ -90,6 +97,7 @@ final class AutomationSession {
             main.post(() -> callback.complete(null, "Another local ADB operation is running."));
             return;
         }
+        connectionAttempt.incrementAndGet();
         submit(() -> {
             try { client().pair(port, code); connectionStatus = "Paired. Now enter the separate connection port and tap Connect."; return true; }
             finally { Arrays.fill(code, '\0'); }
@@ -101,27 +109,63 @@ final class AutomationSession {
     }
 
     void connect(int port, Callback<Boolean> callback) {
+        final int attempt = connectionAttempt.incrementAndGet();
         submit(() -> {
-            client().connect(port);
-            if (!client().isConnected()) throw new IOException("Not connected");
+            try { connectTransport(port); }
+            catch (IOException failure) { markConnectionLost(); throw failure; }
             if (bridge != null) bridge.resetUpload();
             connectionStatus = "Connected to this phone's Wireless debugging service.";
             preferences().edit().putInt("last_connection_port", port).apply();
             return true;
         }, (result, error) -> {
-            if (error != null) connectionStatus = "Connection failed. Check the current connection port; it can change after restarting Wireless debugging.";
+            if (attempt != connectionAttempt.get()) { callback.complete(null, "Connection request was superseded."); return; }
             callback.complete(result, error);
-        }, "Connection failed. Check the connection port shown on the main Wireless debugging screen, not the pairing port.");
+        }, "Connection failed. Check the current connection port. If this app was removed in Wireless debugging, choose Pair again.");
+    }
+    /** Transport boundary is injectable in local lifecycle tests; production always verifies the shell UID. */
+    void connectTransport(int port) throws IOException {
+        client().connect(port);
+        if (!probeCurrentConnection()) throw new IOException("Shell connection unavailable");
+    }
+
+    /** A successful handshake alone is not a continuing shell session. This command never changes policy. */
+    void heartbeat(Callback<Boolean> callback) {
+        submit(() -> {
+            if (!probeCurrentConnection()) { markConnectionLost(); throw new IOException("Shell session lost"); }
+            return true;
+        }, callback, "Local connection was lost. Reconnect, or Pair again if authorization was removed.");
+    }
+
+    private boolean probeCurrentConnection() {
+        try {
+            LocalAdbClient current = client;
+            if (current == null || !current.isConnected()) return false;
+            LocalAdbClient.ShellResult result = current.shell("id -u", 5000, 128);
+            return result.exitCode == 0 && "2000".equals(result.stdout.trim());
+        } catch (IOException unavailable) { return false; }
+    }
+
+    void markConnectionLost() {
+        LocalAdbClient current = client;
+        if (current != null) current.close();
+        if (bridge != null) bridge.resetUpload();
+        connectionStatus = "Local connection lost. Check its current port, or Pair again if removed in Wireless debugging.";
     }
 
     void routing(RoutingBridge.Action action, int vendor, int product, int microphoneId, Callback<RoutingProtocol.Result> callback) {
         submit(() -> {
             if (bridge == null) bridge = new RoutingBridge(context);
             if (action == RoutingBridge.Action.TICK || action == RoutingBridge.Action.DEFAULTS) rememberRestoration(true);
-            RoutingProtocol.Result result = bridge.execute(client(), action, vendor, product, microphoneId);
+            RoutingProtocol.Result result;
+            try { result = bridge.execute(client(), action, vendor, product, microphoneId); }
+            catch (IOException unavailable) {
+                // A helper/protocol error is not necessarily a dead transport. Confirm with one read-only probe.
+                if (!probeCurrentConnection()) markConnectionLost();
+                throw unavailable;
+            }
             lastRoutingResult = result;
             if (result.restorePending || result.state.equals("active")) rememberRestoration(true);
-            else if (result.ok && (result.state.equals("restored") || result.state.equals("idle"))) rememberRestoration(false);
+            else if (result.ok && (result.state.equals("restored") || result.state.equals("idle") || result.state.equals("waiting"))) rememberRestoration(false);
             return result;
         }, callback, "Local ADB or routing-helper communication failed. Automatic writes are stopped. Reconnect and check status; saved preferences may still need restoration.");
     }
@@ -156,6 +200,7 @@ final class AutomationSession {
     void forget(Callback<Boolean> callback) {
         submit(() -> {
             if (RoutingService.running || restorationUnresolved) throw new IOException("Restore saved preferences first");
+            if (!setConnectionWanted(false)) throw new IOException("Connection intent could not be cleared");
             LocalAdbClient current = client();
             current.close();
             current.forgetIdentity();
@@ -182,6 +227,14 @@ final class AutomationSession {
         LocalAdbClient current = client;
         if (current != null) new Thread(current::close, "cancel-local-adb").start();
         connectionStatus = "Connection cancelled. Reconnect manually; any saved routing preferences may still need restoration.";
+    }
+
+    void disconnect() {
+        connectionAttempt.incrementAndGet();
+        LocalAdbClient current = client;
+        if (current != null) current.close();
+        if (bridge != null) bridge.resetUpload();
+        connectionStatus = "Disconnected. Pairing is kept for the next connection.";
     }
 
     static final class DacChoice {

@@ -10,7 +10,7 @@ import org.json.JSONTokener;
 
 /** Shared by the Android bridge and focused JVM protocol tests, without Android stubs. */
 final class RoutingProtocol {
-    private static final Set<String> STATES = new HashSet<>(Arrays.asList("active", "idle", "busy", "restored", "conflict", "blocked"));
+    private static final Set<String> STATES = new HashSet<>(Arrays.asList("active", "idle", "busy", "waiting", "restored", "conflict", "blocked"));
     private RoutingProtocol() {}
 
     static Result parse(String output, int exitCode) throws IOException {

@@ -47,7 +47,7 @@ public final class UiScreenshotTest {
             Field worker = AutomationSession.class.getDeclaredField("worker"); worker.setAccessible(true);
             ((ExecutorService) worker.get(session)).shutdownNow();
         }
-        instance.set(null, null); RoutingService.running = false; RoutingService.presentationState = "off";
+        instance.set(null, null); RoutingService.running = RoutingService.sessionRunning = RoutingService.connecting = RoutingService.routingRequested = RoutingService.restoring = false; RoutingService.presentationState = "off";
     }
 
     @Test public void homeFitsAndHasNoExtraPages() throws Exception {
@@ -138,6 +138,13 @@ public final class UiScreenshotTest {
         assertFalse(menu.getMenu().findItem(8).isEnabled());
         assertFalse(menu.getMenu().findItem(2).isEnabled()); assertFalse(menu.getMenu().findItem(3).isEnabled());
         assertTrue(menu.getMenu().findItem(1).isEnabled()); menu.dismiss();
+        ((View) get(activity, "primary")).performClick();
+        assertFalse((Boolean) get(activity, "pairingMode"));
+        ((View) get(activity, "sheetAlternate")).performClick();
+        assertTrue((Boolean) get(activity, "pairingMode"));
+        assertTrue("Same-key re-pair is available while restoration is pending", ((View) get(activity, "sheetAction")).isEnabled());
+        assertTrue(AutomationSession.get(activity).needsRestoration());
+        ((Dialog) get(activity, "connectionDialog")).dismiss(); shadowOf(android.os.Looper.getMainLooper()).idle();
         capture(activity, null, "home-recovery", 412, 892);
     }
 

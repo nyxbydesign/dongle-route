@@ -8,7 +8,7 @@ DongleRoute incorporates its own Wireless ADB client. Version 0.6 uses one contr
 2. Open the connection sheet. Open Developer options, then Wireless debugging.
 3. Put Settings and the app in split-screen. Open Pair device with pairing code and keep its dialog visible. Copy the pairing port and code into this app's sheet and tap Pair. The code is cleared after use.
 4. Return to the main Wireless debugging screen. Its connection port is different from the temporary pairing port. The same app sheet switches to that connection step. Enter the port and tap Connect. A saved app-owned identity can skip to this step; that hint alone does not prove Android still trusts it.
-5. Use the selected DAC and phone microphone on the main screen. Unique supported choices are selected automatically; tap a row to change them. Tap Use phone mic and approve its notification request. Connecting alone does not start routing. Compatibility details and explicit recovery controls are in the overflow menu.
+5. Allow the visible connection notification and connect. The local session can stay in the foreground while routing is off; swiping the UI from Recents does not request disconnection. Use the selected DAC and phone microphone on the main screen, then tap Use phone mic. Unique supported choices are selected automatically. Connecting alone does not start routing. Compatibility details and explicit recovery controls are in the overflow menu.
 
 The app accepts explicit localhost ports only. It does not discover remote hosts, reuse LADB keys, expose an arbitrary terminal, or import pairing secrets. A successful pairing does not itself establish an active connection.
 
@@ -19,6 +19,20 @@ The foreground service checks every five seconds, also responding to device call
 Calls, non-normal audio mode and active recordings defer writes, including restoration. End them and wait for the pending restoration notification to finish. This deliberately avoids changing routing during a conversation. A device can change state between checks; Android provides no atomic compare-and-set across these preference operations.
 
 Before each write, a shell-owned journal saves the original preference and intended change. Readback verifies the result. Disconnecting the selected DAC or choosing Stop restores only preferences still owned by this session. External changes cause a conflict instead of being overwritten. A failed connection is not proof that restoration happened.
+
+Known attach/detach transitions can temporarily leave Android's USB and audio lists out of sync. Routing waits without writing until that inventory is stable. A new USB enumeration generation restores the owned baseline before reapplying the requested route. Permission/API/query failures and ambiguous or foreign hardware remain blocked.
+
+## Background connection and revoked pairing
+
+The connection session and microphone routing have separate lifetimes. Explicit Connect starts a user-visible foreground owner before connecting. Stop & restore ends routing but leaves that local connection available. Disconnect ends the session and first restores owned changes when possible. A Recents swipe dismisses the UI; Android's Active apps Stop and Settings Force stop are deliberate app stops and are respected.
+
+Android distinguishes task removal from stopping an app through Active apps; the latter stops the entire process and does not deliver a cleanup callback. See [service task-removal behavior](https://developer.android.com/reference/android/app/Service#onTaskRemoved(android.content.Intent)) and [user-initiated foreground-service stops](https://developer.android.com/develop/background-work/services/fgs/handle-user-stopping).
+
+Idle connection checks detect observable transport/UID failure and mark the session offline. Removing the paired-device entry in Wireless debugging can invalidate authorization; an already open tunnel's behavior depends on Android. Pair again is allowed while restoration is pending, using the same app-owned identity. Forgetting or deleting the identity remains blocked until recovery is resolved.
+
+No authorization denial is retried in a loop. A system-reclaimed foreground session can make one reconnect attempt from a prior explicit connection request, with routing off. It does not start itself on reboot or merely because the UI opens after a user stop. Ports can change; use the current connection port if the saved one fails.
+
+If behavior differs on a phone, use Routing details to copy the bounded app-owned session history. It records lifecycle and state transitions without pairing codes, keys or personal device addresses. Keep reports private until reviewed.
 
 If you previously ran the manual LADB commands selecting the bottom microphone, that is the saved baseline. **Stop & restore keeps that baseline.** To return to Android's automatic input selection instead, explicitly choose **Use Android defaults** in the overflow menu. That action only clears the matching built-in preferences or accepts already-absent ones; unrelated preferences are refused.
 

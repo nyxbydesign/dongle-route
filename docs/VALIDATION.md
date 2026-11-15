@@ -2,6 +2,26 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.7 validation (2026-11-15)
+
+This update addresses user-reported dongle reconnect failure, loss of the idle ADB session after a Recents swipe, and inability to re-pair after Android removes authorization. Connect now has its own foreground owner independently of routing. Stop restores routing while retaining the connection; explicit Disconnect restores before closing when possible. Observable transport loss parks without an authorization retry loop, and same-key re-pairing remains available with pending restoration. Known USB/audio-list settling waits without writes; a new enumeration generation restores the baseline before reapplying.
+
+- Reproduced the prior detach-inventory failure and passed 46 helper scenarios / 366 assertions covering settling, stale IDs, generation changes, deferred restoration, external conflicts and strict query/permission failures. The final Android adapter and new USB inventory classifier compiled and dexed successfully.
+- Passed 42 protocol assertions, including the new waiting state. The unchanged 48 wire/loopback transport assertions are reused; no vendor transport patch was needed.
+- Passed six native UI cases, thirteen controlled service lifecycle cases and one real-session worker-order regression. Coverage includes foreground-before-transport, idle Recents/heartbeat, Stop retaining the session, lost authorization with recovery debt, wait/reapply, restore-first Disconnect, one-shot system recovery, storage failures, forgetting only after owner shutdown, and stale callbacks/results not invalidating a newer owner. These use controlled session boundaries and do not connect to a phone.
+- Initial build/lint/tests passed. Subsequent concrete persistence and owner/outcome race fixes were qualified with affected assembly/lint and lifecycle/worker tests; unchanged UI/protocol results were retained. Final build/lint passed with zero errors and the four previously reviewed warnings. Seven actual Android-view renders were retained.
+- Verified package dev.usbmic.inspector, version code 7 / 0.7-diagnostic, min API 34, target/compile API 35, ARM64/x86_64, size 15,326,302 bytes; existing debug certificate and exactly four permissions retained. Native ELF/ZIP 16 KB alignment, new helper asset/classifier, nine notices and absence of legacy diagnostic classes were checked. The instrumentation APK is unchanged, built alongside the target and not installed or executed.
+
+Final APK SHA-256:
+
+```text
+c78435bced0059316c4370f880fc200adcbd30752b858af42baac6510b8de2ed
+```
+
+The workstation temporarily disconnected after qualification. After recovery, the existing APK hash and retained final test XML were reconciled without rebuilding or rerunning passing tests. Source/artifact receipts and original regressions remain in ignored evidence/0.7/.
+
+Physical-phone Recents behavior, actual ADB authorization revocation, USB replug, target-app capture and wired output still require acceptance. No phone discovery, connection, pairing, policy write, recording, playback, USB claim or emulator retry was performed here. Pairing itself remains an explicit visible split-screen operation; the Connect operation and connected-idle session have foreground ownership.
+
 ## Version 0.6 validation (2026-11-15)
 
 The app now has one flat control screen, inline USB/microphone choices, a compact Pair/Connect sheet and an overflow menu. Device and Settings pages, nested cards and the redundant Start confirmation are removed. Unique supported device choices are selected automatically. A saved app-owned identity only selects the shorter connection form; it does not certify pairing. The last successful connection port is remembered, and connecting alone never starts routing.

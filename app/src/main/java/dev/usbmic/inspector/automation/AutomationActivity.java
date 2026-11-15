@@ -59,6 +59,8 @@ public class AutomationActivity extends Activity {
     private EditText pairingPort, pairingCode, connectionPort;
     private TextView sheetAction, sheetAlternate, sheetFeedback;
     private boolean pairingMode, inventoryKnown, inventoryAttempted, inventoryDirty = true, observersRegistered;
+    private boolean awaitingConnection;
+    private int awaitedConnectionVersion;
     private long refreshAfter;
     private int selectedVendor = -1, selectedProduct = -1, selectedMicId = -1;
     private String rememberedDongle = "", rememberedMic = "", feedback = "", sheetMessage = "";
@@ -154,6 +156,11 @@ public class AutomationActivity extends Activity {
     }
 
     private void updateState() {
+        if (awaitingConnection && session.connectionResultVersion != awaitedConnectionVersion) {
+            awaitingConnection = false;
+            if (session.isConnected()) connectionCompleted();
+            else sheetMessage = session.connectionStatus;
+        }
         boolean connected = session.isConnected(), busy = session.isBusy(), active = RoutingService.running, debt = session.needsRestoration();
         AutomationSession.DacChoice dac = selectedDongle(); AutomationSession.MicChoice mic = selectedMicrophone();
         if (dac != null) rememberedDongle = dongleName(dac);
@@ -161,7 +168,7 @@ public class AutomationActivity extends Activity {
         dongleTitle.setText(dac != null ? rememberedDongle : selectionLocked() && !rememberedDongle.isEmpty() ? rememberedDongle : "Connect USB headphones");
         micTitle.setText(mic != null ? rememberedMic : selectionLocked() && !rememberedMic.isEmpty() ? rememberedMic : "Choose microphone");
         enabled(dongleRow, !busy && !selectionLocked()); enabled(microphoneRow, !busy && !selectionLocked());
-        connectionLabel.setText(connected ? "LOCAL CONTROL / CONNECTED" : "LOCAL CONTROL / OFFLINE");
+        connectionLabel.setText(RoutingService.connecting ? "LOCAL CONTROL / CONNECTING" : connected ? "LOCAL CONTROL / CONNECTED" : "LOCAL CONTROL / OFFLINE");
         connectionLabel.setTextColor(connected ? MINT : MUTED);
         String title, hint;
         if (!connected && debt) { title = "Reconnect to restore"; hint = "The previous microphone preference may still be set."; }
@@ -171,6 +178,7 @@ public class AutomationActivity extends Activity {
             if ("active".equals(state)) { title = "Phone mic preference set"; hint = "Check voice and headphone sound in your calling app."; }
             else if ("busy".equals(state)) { title = "Waiting for recording to end"; hint = "No routing changes during calls or recordings."; }
             else if ("restoring".equals(state)) { title = "Restoring previous preferences"; hint = "Keep the connection open."; }
+            else if ("waiting".equals(state)) { title = RoutingService.restoring ? "Waiting to restore" : "Waiting for USB audio"; hint = "Android is updating the device list. Local control stays connected."; }
             else if ("idle".equals(state) || "restored".equals(state)) { title = "Waiting for USB headphones"; hint = "The selected route resumes when the dongle reconnects."; }
             else { title = "Checking routing support"; hint = "Requesting the selected phone input."; }
         } else if (debt) { title = "Restore the previous route"; hint = "Finish recovery before choosing a new route."; }
@@ -183,7 +191,7 @@ public class AutomationActivity extends Activity {
         enabled(primary, !busy || active);
         if (feedbackView != null) { feedbackView.setText(feedback); feedbackView.setVisibility(feedback.isEmpty() ? View.GONE : View.VISIBLE); }
         if (connectionDialog != null && connectionDialog.isShowing()) {
-            enabled(sheetAction, !busy && !active && (!pairingMode || !debt)); enabled(sheetAlternate, !busy && !active);
+            enabled(sheetAction, !busy && !RoutingService.connecting && (!active || !connected)); enabled(sheetAlternate, !busy && !RoutingService.connecting && (!active || !connected));
             if (sheetFeedback != null) { sheetFeedback.setText(sheetMessage); sheetFeedback.setVisibility(sheetMessage.isEmpty() ? View.GONE : View.VISIBLE); }
         }
     }
@@ -198,7 +206,8 @@ public class AutomationActivity extends Activity {
     private void showOptions(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
         boolean connected = session.isConnected(), busy = session.isBusy(), active = RoutingService.running;
-        menu.getMenu().add(0, 1, 0, connected ? "Connection" : "Connect").setEnabled(!active);
+        menu.getMenu().add(0, 1, 0, connected ? "Connection" : "Connect").setEnabled(!active || !connected);
+        menu.getMenu().add(0, 9, 1, active || session.needsRestoration() ? "Restore & disconnect" : "Disconnect").setEnabled(RoutingService.sessionRunning && !busy);
         menu.getMenu().add(0, 2, 1, "Restore previous preferences").setEnabled(connected && !busy);
         menu.getMenu().add(0, 3, 2, "Use Android defaults").setEnabled(connected && !busy && inventoryKnown && selectedMicrophone() != null);
         menu.getMenu().add(0, 4, 3, "Details");
@@ -207,6 +216,7 @@ public class AutomationActivity extends Activity {
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
                 case 1: openConnection(); break;
+                case 9: requestDisconnect(); break;
                 case 2: startAction(RoutingService.STOP, false); break;
                 case 3: confirmDefaults(); break;
                 case 4: showRoutingDetails(); break;
@@ -219,14 +229,14 @@ public class AutomationActivity extends Activity {
     }
 
     private void openConnection() {
-        if (RoutingService.running) { message("Stop and restore before changing the connection."); return; }
+        if (RoutingService.running && session.isConnected()) { message("Stop and restore before changing the connection."); return; }
         if (connectionDialog != null && connectionDialog.isShowing()) return;
         pairingMode = !session.hasLocalIdentity() && !session.needsRestoration(); sheetMessage = "";
         connectionDialog = new Dialog(this);
         SheetScroll sheet = new SheetScroll(this);
         sheetBody = column(this); sheetBody.setPadding(d(24), d(24), d(24), d(18));
         sheet.addView(sheetBody); connectionDialog.setContentView(sheet);
-        connectionDialog.setOnDismissListener(dialog -> { rememberPortFields(); pairingPort = pairingCode = connectionPort = null; connectionDialog = null; });
+        connectionDialog.setOnDismissListener(dialog -> { rememberPortFields(); pairingPort = pairingCode = connectionPort = null; connectionDialog = null; awaitingConnection = false; });
         renderConnectionSheet();
         Window window = connectionDialog.getWindow();
         if (window != null) {
@@ -282,7 +292,7 @@ public class AutomationActivity extends Activity {
         catch (NumberFormatException invalid) { sheetMessage("Enter the port shown in Android Settings (1-65535)."); return null; }
     }
     private void pair() {
-        if (session.needsRestoration() || RoutingService.running || session.isBusy()) { sheetMessage("Restore the previous route before pairing again."); return; }
+        if ((RoutingService.running && session.isConnected()) || session.isBusy()) { sheetMessage("Finish the current operation before pairing again."); return; }
         Integer port = port(pairingPort); if (port == null) return;
         char[] code = new char[pairingCode.length()]; pairingCode.getText().getChars(0, code.length, code, 0); pairingCode.setText("");
         boolean valid = code.length == 6; for (char digit : code) valid &= digit >= '0' && digit <= '9';
@@ -295,8 +305,15 @@ public class AutomationActivity extends Activity {
         });
     }
     private void connect() {
-        Integer port = port(connectionPort); if (port == null) return; rememberPortFields(); sheetMessage("Connecting\u2026");
-        session.connect(port, (result, error) -> { if (!isDestroyed()) { if (error != null) sheetMessage(error); else connectionCompleted(); } });
+        Integer port = port(connectionPort); if (port == null || !notificationsReady()) return;
+        rememberPortFields(); sheetMessage("Connecting\u2026");
+        awaitedConnectionVersion = session.connectionResultVersion; awaitingConnection = true;
+        try { startForegroundService(new Intent(this, RoutingService.class).setAction(RoutingService.CONNECT).putExtra("port", port)); }
+        catch (RuntimeException unavailable) { awaitingConnection = false; sheetMessage("The background connection service could not start. Check notifications and retry."); }
+    }
+    private void requestDisconnect() {
+        try { startService(new Intent(this, RoutingService.class).setAction(RoutingService.DISCONNECT)); }
+        catch (RuntimeException unavailable) { message("The session could not close. Reopen the app and try again."); }
     }
     /** Connection never implies a routing request. Start remains a distinct user action. */
     private void connectionCompleted() {
@@ -356,7 +373,7 @@ public class AutomationActivity extends Activity {
     }
     private boolean notificationsReady() {
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 40); message("Allow the Stop notification, then tap the action again."); return false;
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 40); sheetMessage("Allow the visible session notification, then tap the action again."); message("Allow the visible session notification, then tap the action again."); return false;
         }
         NotificationManager manager = getSystemService(NotificationManager.class); NotificationChannel channel = manager.getNotificationChannel("automatic_input_routing");
         if (!manager.areNotificationsEnabled() || (channel != null && channel.getImportance() == NotificationManager.IMPORTANCE_NONE)) { message("Enable routing notifications in Android Settings first."); return false; }
@@ -386,10 +403,14 @@ public class AutomationActivity extends Activity {
     private void forget() {
         if (RoutingService.running || session.isBusy() || session.needsRestoration()) { message("Restore previous preferences before forgetting pairing."); return; }
         new AlertDialog.Builder(this).setTitle("Forget pairing?").setMessage("Remove this app's local identity. You can also revoke its entry in Android Wireless debugging.")
-                .setNegativeButton("Cancel", null).setPositiveButton("Forget", (dialog, which) -> session.forget((result, error) -> message(error == null ? "Pairing removed." : error))).show();
+                .setNegativeButton("Cancel", null).setPositiveButton("Forget", (dialog, which) -> {
+                    if (!RoutingService.prepareToForget(this)) { message("Restore previous preferences and finish the current operation before forgetting pairing."); return; }
+                    session.forget((result, error) -> message(error == null ? "Pairing removed." : error));
+                }).show();
     }
     private void showRoutingDetails() {
-        String info = "DongleRoute 0.6\nLocal control: " + (session.isConnected() ? "connected" : "offline") + "\n\n" + RoutingService.status;
+        String info = "DongleRoute 0.7\nLocal control: " + (session.isConnected() ? "connected" : "offline")
+                + "\nBackground session: " + RoutingService.sessionRunning + "\nRouting requested: " + RoutingService.routingRequested + "\n\n" + RoutingService.status;
         RoutingProtocol.Result last = session.lastRoutingResult; if (last != null) info += "\n\nLast policy check\n" + last.describe();
         info += "\n\nRestoration may be needed: " + (session.needsRestoration() ? "yes" : "no");
         if (!dongles.isEmpty()) {
@@ -397,8 +418,15 @@ public class AutomationActivity extends Activity {
             for (AutomationSession.DacChoice d : dongles) info += String.format(Locale.ROOT, "\n%s  %04x:%04x  %s", dongleName(d), d.vendor, d.product, d.audio ? "audio" : "no audio interface");
         }
         info += "\n\nPreference readback does not prove the input used by a calling app.";
+        String events = SessionEvents.read(this);
+        if (!events.isEmpty()) info += "\n\nRecent session events\n" + events;
+        final String report = info;
         AlertDialog details = new AlertDialog.Builder(this).setTitle("Routing details").setMessage(info)
-                .setNeutralButton("Check compatibility", (dialog, which) -> checkStatus()).setPositiveButton("Close", null).create();
+                .setNeutralButton("Check compatibility", (dialog, which) -> checkStatus())
+                .setNegativeButton("Copy", (dialog, which) -> {
+                    getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("DongleRoute details", report));
+                    message("Details copied. Review hardware information before sharing.");
+                }).setPositiveButton("Close", null).create();
         details.setOnShowListener(dialog -> details.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(session.isConnected() && !session.isBusy() && !RoutingService.running));
         details.show();
     }

@@ -180,13 +180,18 @@ public final class InputRoutingHelper {
                     && Objects.equals(before.key, after.key) && before.safe == after.safe;
             return new RoutingEngine.Observation(true, before.idle && after.idle,
                     before.safe && after.safe && stable, after.attached, after.bottom, after.key, mic, voice,
-                    after.requestedMicrophone, microphoneId != null);
+                    after.requestedMicrophone, microphoneId != null,
+                    !before.refused && !after.refused && (!stable || before.settling || after.settling));
         }
 
         @Override public void write(RoutingEngine.Write request) throws Exception {
             int index = request.preset == 1 ? 0 : request.preset == 7 ? 1 : -1;
             if (index < 0) throw new IllegalArgumentException("Unsupported capture preset");
             RoutingEngine.Observation fresh = observe(request.selection, request.bottom, null);
+            if (fresh.authorized && fresh.idle && (fresh.inventorySettling || (fresh.safeInventory
+                    && request.requireAttached && (!fresh.attached || !Objects.equals(request.attachmentKey, fresh.attachmentKey))))) {
+                throw new RoutingEngine.InventoryTransition();
+            }
             if (!fresh.authorized || !fresh.idle || !fresh.safeInventory || !request.bottom.equals(fresh.bottom)
                     || !request.expected.equals(fresh.preferences[index])
                     || (request.requireAttached && (!fresh.attached || !Objects.equals(request.attachmentKey, fresh.attachmentKey)))) {
@@ -234,22 +239,28 @@ public final class InputRoutingHelper {
             }
             List<UsbDevice> physical = new ArrayList<>(usb.getDeviceList().values());
             result.attached = !physical.isEmpty();
-            if (physical.isEmpty()) {
-                result.safe = inputs.isEmpty() && outputs.isEmpty();
+            boolean matches = physical.size() == 1 && selected != null
+                    && physical.get(0).getVendorId() == selected.vid && physical.get(0).getProductId() == selected.pid;
+            boolean validPair = false;
+            if (inputs.size() == 1 && outputs.size() == 1) {
+                AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
+                validPair = in.isSource() && !in.isSink() && out.isSink() && !out.isSource()
+                        && in.getId() != out.getId() && in.getType() == out.getType() && !in.getAddress().isEmpty()
+                        && in.getAddress().equals(out.getAddress());
+            }
+            UsbInventoryPolicy.State state = UsbInventoryPolicy.classify(physical.size(), matches, selected != null,
+                    inputs.size(), outputs.size(), validPair);
+            result.settling = state == UsbInventoryPolicy.State.SETTLING;
+            result.refused = state == UsbInventoryPolicy.State.REFUSED;
+            result.safe = state == UsbInventoryPolicy.State.ABSENT || state == UsbInventoryPolicy.State.ATTACHED;
+            if (state == UsbInventoryPolicy.State.ABSENT) {
                 result.key = "absent";
-            } else if (physical.size() == 1 && selected != null) {
+            } else if (state == UsbInventoryPolicy.State.ATTACHED) {
                 UsbDevice dac = physical.get(0);
-                result.safe = dac.getVendorId() == selected.vid && dac.getProductId() == selected.pid
-                        && inputs.size() == 1 && outputs.size() == 1;
-                if (result.safe) {
-                    AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
-                    result.safe = in.isSource() && !in.isSink() && out.isSink() && !out.isSource()
-                            && in.getId() != out.getId() && in.getType() == out.getType() && !in.getAddress().isEmpty()
-                            && in.getAddress().equals(out.getAddress());
-                    result.key = digest(selected.vid + ":" + selected.pid + ":" + dac.getDeviceName()
-                            + ":" + in.getId() + ":" + in.getType() + ":" + in.getAddress()
-                            + ":" + out.getId() + ":" + out.getType() + ":" + out.getAddress());
-                }
+                AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
+                result.key = digest(selected.vid + ":" + selected.pid + ":" + dac.getDeviceName()
+                        + ":" + in.getId() + ":" + in.getType() + ":" + in.getAddress()
+                        + ":" + out.getId() + ":" + out.getType() + ":" + out.getAddress());
             }
             return result;
         }
@@ -324,7 +335,7 @@ public final class InputRoutingHelper {
         }
 
         private static final class Environment {
-            boolean idle, safe, attached;
+            boolean idle, safe, attached, settling, refused;
             RoutingEngine.Device bottom, requestedMicrophone;
             int microphoneId;
             String key;

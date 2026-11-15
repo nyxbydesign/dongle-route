@@ -1,5 +1,6 @@
 import dev.usbmic.inspector.shell.RoutingEngine;
 import dev.usbmic.inspector.shell.MicrophoneSelector;
+import dev.usbmic.inspector.shell.UsbInventoryPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -15,6 +16,7 @@ public final class InputRoutingEngineTest {
     private static int assertions, scenarios;
 
     public static void main(String[] args) {
+        usbReconnectTransitions();
         attachDetachAndIdempotence();
         busyAndDeferredStop();
         preserveManualBaselines();
@@ -26,6 +28,113 @@ public final class InputRoutingEngineTest {
         journalFailures();
         microphoneSelection();
         System.out.println("PASS: " + scenarios + " routing scenarios, " + assertions + " assertions; fake backend only, no Android or device writes");
+    }
+
+    private static void usbReconnectTransitions() {
+        Rig r = new Rig(); r.run("tick");
+        r.backend.attached = false; r.backend.safe = false; r.backend.settling = true;
+        RoutingEngine.Result settling = r.run("tick");
+        check(settling.ok && "waiting".equals(settling.state) && settling.restorePending,
+                "USB detach inventory transition keeps monitoring and restoration ownership");
+        int writes = r.backend.writeCalls, saves = r.store.saves;
+        check(r.run("tick").state.equals("waiting") && r.backend.writeCalls == writes && r.store.saves == saves,
+                "unchanged settling observation makes no routing or journal writes");
+        check(r.run("status").state.equals("waiting") && r.backend.writeCalls == writes && r.store.saves == saves,
+                "status during settling is read-only");
+        r.backend.safe = true; r.backend.settling = false;
+        check(r.run("tick").state.equals("restored") && r.backend.preferences[0].isNone(),
+                "settled physical detach restores original preference");
+        r.backend.attached = true; r.backend.safe = false; r.backend.settling = true; r.backend.key = "new-ports";
+        writes = r.backend.writeCalls;
+        RoutingEngine.Result attaching = r.run("tick");
+        check(attaching.ok && attaching.state.equals("waiting") && !attaching.restorePending && r.backend.writeCalls == writes,
+                "new physical attach with missing audio ports waits without inventing ownership");
+        r.backend.safe = true; r.backend.settling = false;
+        check(r.run("tick").state.equals("active") && r.backend.writeCalls == writes + 2,
+                "settled new ports reapply the route");
+        scenarios++;
+
+        r = new Rig(); r.run("tick"); r.backend.key = "immediate-replug"; writes = r.backend.writeCalls;
+        check(r.run("tick").state.equals("restored") && r.backend.writeCalls == writes + 2,
+                "missed absent interval restores prior baseline before replacing the generation");
+        check(r.run("tick").state.equals("active") && r.store.saved.attachmentKey.equals("immediate-replug")
+                && r.store.saved.originals[0].isNone(), "replacement generation uses the original baseline, never its own desired preference");
+        scenarios++;
+
+        r = new Rig(); r.run("tick"); r.backend.key = "next-generation"; r.backend.idle = false; writes = r.backend.writeCalls;
+        check(r.run("tick").state.equals("busy") && r.backend.writeCalls == writes,
+                "generation reconciliation waits during calls");
+        r.backend.idle = true;
+        check(r.run("tick").state.equals("restored") && r.run("tick").state.equals("active"),
+                "idle generation recovery restores then reapplies");
+        scenarios++;
+
+        r = new Rig(); r.run("tick"); r.backend.settling = true; r.backend.safe = false; writes = r.backend.writeCalls;
+        check(r.run("stop").state.equals("waiting") && r.store.saved.phase.equals(RoutingEngine.RESTORING)
+                && r.backend.writeCalls == writes, "Stop retains explicit restoration intent during inventory transition");
+        r.backend.settling = false; r.backend.safe = true; r.backend.attached = false;
+        check(r.run("stop").state.equals("restored") && r.backend.preferences[1].isNone(),
+                "Stop completes only after safe inventory returns");
+        scenarios++;
+
+        r = new Rig(); r.run("tick"); r.backend.key = "next-generation"; r.backend.preferences[0] = OTHER; writes = r.backend.writeCalls;
+        check(r.run("tick").state.equals("conflict") && r.backend.writeCalls == writes,
+                "re-enumeration does not authorize overwriting external preferences");
+        r = new Rig(); r.run("tick"); r.backend.safe = false; r.backend.settling = true; r.backend.preferences[1] = OTHER;
+        check(r.run("tick").state.equals("conflict") && r.backend.writeCalls == 2,
+                "external preference changes during a transition end ownership without mutation");
+        scenarios++;
+
+        r = new Rig(); r.backend.safe = false;
+        check(!r.run("tick").ok && r.backend.writeCalls == 0, "unclassified/foreign inventory remains blocked");
+        r = new Rig(); r.backend.settling = true; r.backend.safe = false; r.backend.queryUnknown = true;
+        check(!r.run("tick").ok && r.backend.writeCalls == 0, "query failure is never relabeled a USB transition");
+        r = new Rig(); r.backend.settling = true; r.backend.safe = false; r.backend.authorized = false;
+        check(!r.run("tick").ok && r.backend.writeCalls == 0, "permission failure remains terminal during transition");
+        scenarios++;
+
+        r = new Rig(); r.backend.settleBeforeWrite = 1;
+        check(r.run("tick").state.equals("waiting") && r.backend.actualWrites.isEmpty()
+                && r.store.saved.phase.equals(RoutingEngine.RESTORING) && !r.store.saved.recoveryBlocked,
+                "fresh pre-write transition retains rollback intent without marking a permanent apply failure");
+        r.backend.settling = false; r.backend.safe = true; r.backend.key = "replacement";
+        check(r.run("tick").state.equals("restored") && r.run("tick").state.equals("active"),
+                "verified non-mutating apply guard transition resumes after reconciliation");
+        scenarios++;
+
+        r = new Rig(); r.run("tick"); r.backend.settleBeforeWrite = r.backend.writeCalls + 1;
+        check(r.run("stop").state.equals("waiting") && r.backend.actualWrites.size() == 2,
+                "fresh pre-restore transition cannot perform a routing mutation");
+        r.backend.settling = false; r.backend.safe = true;
+        check(r.run("stop").state.equals("restored") && r.backend.preferences[0].isNone(),
+                "pre-restore transition retries only after fresh intent/readback reconciliation");
+        scenarios++;
+
+        RoutingEngine.Device rear = new RoutingEngine.Device(1, 15, "rear");
+        r = new Rig(); r.backend.microphones = Arrays.asList(port(10, BOTTOM), port(20, rear));
+        check(r.engine().run("tick", DAC, 20).state.equals("active"), "explicit rear mic initially applies");
+        r.backend.microphones = Arrays.asList(port(30, BOTTOM), port(40, rear)); r.backend.key = "new-usb-ids";
+        check(r.engine().run("tick", DAC, 20).state.equals("restored"),
+                "stale numeric hint does not hide the uniquely retained canonical microphone");
+        check(r.engine().run("tick", DAC, null).state.equals("active") && r.store.saved.bottom.equals(rear),
+                "fresh attach preserves a non-default canonical mic after baseline restoration");
+        r.run("stop");
+        check(r.engine().run("tick", DAC, 30).state.equals("active") && r.store.saved.bottom.equals(BOTTOM),
+                "a new explicit valid selection after Stop can replace the canonical target");
+        scenarios++;
+
+        check(UsbInventoryPolicy.classify(0, false, true, 0, 0, false) == UsbInventoryPolicy.State.ABSENT, "empty inventories establish absence");
+        check(UsbInventoryPolicy.classify(0, false, true, 1, 1, true) == UsbInventoryPolicy.State.SETTLING, "audio ports can outlive physical detach");
+        check(UsbInventoryPolicy.classify(0, false, true, 1, 0, false) == UsbInventoryPolicy.State.SETTLING, "last input may linger alone");
+        check(UsbInventoryPolicy.classify(1, true, true, 0, 0, false) == UsbInventoryPolicy.State.SETTLING, "chosen physical device may precede audio ports");
+        check(UsbInventoryPolicy.classify(1, true, true, 1, 0, false) == UsbInventoryPolicy.State.SETTLING, "output registration may follow input");
+        check(UsbInventoryPolicy.classify(1, true, true, 1, 1, true) == UsbInventoryPolicy.State.ATTACHED, "complete valid pair establishes attachment");
+        check(UsbInventoryPolicy.classify(1, false, true, 0, 0, false) == UsbInventoryPolicy.State.REFUSED, "foreign physical device is not settling");
+        check(UsbInventoryPolicy.classify(2, true, true, 1, 1, true) == UsbInventoryPolicy.State.REFUSED, "multiple physical devices stay refused");
+        check(UsbInventoryPolicy.classify(1, true, true, 2, 1, true) == UsbInventoryPolicy.State.REFUSED, "ambiguous input ports stay refused");
+        check(UsbInventoryPolicy.classify(1, true, true, 1, 1, false) == UsbInventoryPolicy.State.REFUSED, "mismatched complete pair stays refused");
+        check(UsbInventoryPolicy.classify(0, false, false, 1, 1, true) == UsbInventoryPolicy.State.REFUSED, "unselected stale ports cannot be claimed as a known transition");
+        scenarios++;
     }
 
     private static void attachDetachAndIdempotence() {
@@ -359,9 +468,10 @@ public final class InputRoutingEngineTest {
         RoutingEngine.Preference[] preferences = {NONE, NONE};
         RoutingEngine.Device bottom = BOTTOM;
         List<MicrophoneSelector.Port> microphones;
-        boolean attached = true, safe = true, idle = true, authorized = true, queryUnknown;
+        boolean attached = true, safe = true, idle = true, authorized = true, queryUnknown, settling;
+        String key = "stable-pair";
         int writeCalls, failBeforeWrite, failAfterWrite, crashBeforeWrite, crashAfterWrite;
-        int busyBeforeWrite, externalBeforeWrite, unknownAfterWrite;
+        int busyBeforeWrite, externalBeforeWrite, unknownAfterWrite, settleBeforeWrite;
         final List<RoutingEngine.Write> actualWrites = new ArrayList<>();
         FakeBackend(MemoryStore store) { this.store = store; }
         @Override public RoutingEngine.Observation observe(RoutingEngine.Selection selected, RoutingEngine.Device retained, Integer microphoneId) throws Exception {
@@ -371,8 +481,8 @@ public final class InputRoutingEngineTest {
             MicrophoneSelector.Port target = retained == null ? MicrophoneSelector.choose(ports, microphoneId) : MicrophoneSelector.resolve(ports, retained);
             MicrophoneSelector.Port requested = microphoneId == null ? null : MicrophoneSelector.choose(ports, microphoneId);
             return new RoutingEngine.Observation(authorized, idle, safe, attached, target == null ? null : target.device,
-                    attached ? "stable-pair" : "absent", preferences[0], preferences[1],
-                    requested == null ? null : requested.device, microphoneId != null);
+                    attached ? key : "absent", preferences[0], preferences[1],
+                    requested == null ? null : requested.device, microphoneId != null, settling);
         }
         @Override public void write(RoutingEngine.Write request) throws Exception {
             writeCalls++;
@@ -382,7 +492,9 @@ public final class InputRoutingEngineTest {
                     || store.saved.steps[index] == RoutingEngine.RESTORE_INTENT), "durable intent precedes every backend write");
             if (writeCalls == busyBeforeWrite) idle = false;
             if (writeCalls == externalBeforeWrite) preferences[index] = OTHER;
+            if (writeCalls == settleBeforeWrite) { safe = false; settling = true; }
             RoutingEngine.Observation fresh = observe(request.selection, request.bottom, null);
+            if (fresh.authorized && fresh.idle && fresh.inventorySettling) throw new RoutingEngine.InventoryTransition();
             if (!fresh.authorized || !fresh.idle || !fresh.safeInventory || !request.bottom.equals(fresh.bottom)
                     || !request.expected.equals(fresh.preferences[index])
                     || (request.requireAttached && (!fresh.attached || !request.attachmentKey.equals(fresh.attachmentKey)))) {

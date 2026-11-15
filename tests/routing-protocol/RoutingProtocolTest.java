@@ -23,7 +23,7 @@ public final class RoutingProtocolTest {
 
     public static void main(String[] args) throws Exception {
         check(new JSONObject("{\"working\":true}").getBoolean("working"), "real org.json executes without Android stubs");
-        for (String state : new String[]{"active", "idle", "busy", "restored", "conflict", "blocked"}) {
+        for (String state : new String[]{"active", "idle", "busy", "waiting", "restored", "conflict", "blocked"}) {
             boolean ok = !state.equals("conflict") && !state.equals("blocked");
             RoutingProtocol.Result parsed = RoutingProtocol.parse(response(ok, state, !state.equals("busy"), false), 0);
             check(parsed.state.equals(state) && parsed.ok == ok, "known helper state " + state);
@@ -31,6 +31,9 @@ public final class RoutingProtocolTest {
         RoutingProtocol.Result busy = RoutingProtocol.parse(response(true, "busy", false, true), 0);
         check(busy.ok && !busy.idle && busy.restorePending, "busy Stop/defaults preserves deferred restoration");
         check(busy.describe().contains("pending"), "pending state is visible");
+        RoutingProtocol.Result waiting = RoutingProtocol.parse(response(true, "waiting", true, true), 0);
+        check(waiting.ok && waiting.restorePending && waiting.state.equals("waiting"), "device transition retains restoration ownership");
+        check(!RoutingProtocol.parse(response(true, "waiting", true, true), 124).ok, "waiting cannot mask helper failure");
         RoutingProtocol.Result restored = RoutingProtocol.parse(" \n" + response(true, "restored", true, false) + "\n", 0);
         check(restored.ok && restored.idle && !restored.restorePending, "outer process whitespace allowed");
         for (int exit : new int[]{1, 2, 124, 255}) {

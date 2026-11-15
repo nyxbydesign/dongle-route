@@ -70,7 +70,7 @@ No Shizuku, separate LADB app, or root is needed. You authorize this app's own l
 1. **Plug in your dongle.** The app selects an unambiguous USB audio device and phone mic. Tap a device row only if you want to change the choice.
 2. **Connect when needed.** Setup opens over the same screen. For first pairing, enable Android Wireless debugging, open *Pair device with pairing code*, and keep its dialog visible alongside DongleRoute in split-screen. Enter the pairing port and code.
 3. **Use the connection port.** After pairing, the same sheet asks for the port on the main Wireless debugging screen. It differs from the temporary pairing port. Returning users can go straight to this step.
-4. **Use the phone mic.** Back on the main screen, start routing. Allow notifications for the visible Stop control. Connecting alone does not start routing.
+4. **Use the phone mic.** Back on the main screen, start routing. The connection has its own visible background notification; connecting alone does not start routing.
 
 Verify a short voice test in the app you actually use, and confirm that wired headphone playback stays audible. DongleRoute does not record audio or claim USB interfaces.
 
@@ -81,10 +81,13 @@ Verify a short voice test in the app you actually use, and confirm that wired he
 | Control | What it does |
 | --- | --- |
 | **Use phone mic** | Prefers the selected phone mic for MIC and VOICE_COMMUNICATION while the selected DAC is attached and this service remains connected. Output policy stays unchanged. |
-| **Stop & restore** | Returns to the preferences present before automation, including any manual phone-mic preference you had already set. |
+| **Stop & restore** | Returns to the preferences present before automation, including any manual phone-mic preference you had already set. The local connection stays available. |
 | **Use Android defaults** | Explicitly clears matching phone-microphone preferences so Android can choose automatically. Unrelated preferences are preserved. |
+| **Disconnect** | Ends the local session, restoring owned preferences first when the connection permits it. Pending recovery is retained if authorization is lost. |
 
-Changes wait during calls or recordings. If local ADB disconnects or Android kills the app, preferences can remain active: reconnect and restore. Reopen and connect using the current port after reboot or a Wireless debugging restart.
+Changes wait during calls, recordings and a known dongle/audio-inventory transition. A connection foreground service remains active after a Recents swipe, including when routing is off. Android's Stop and Force stop controls are respected.
+
+If local ADB loses authorization, preferences can remain active: pair the same app identity again, reconnect and restore. Reopen and connect using the current port after reboot or a Wireless debugging restart. Routing details includes a deliberate copy action for the app's bounded session history.
 
 ## Compatibility
 
@@ -93,7 +96,7 @@ Changes wait during calls or recordings. If local ADB disconnects or Android kil
 | **Install** | Android 14+, USB host support, ARM64 or x86_64 |
 | **Inspect** | Connected USB/audio inventory; no Pixel-only or dongle-ID allowlist |
 | **Configure** | Runtime shell permission, named API, microphone identity and preference-query checks must pass |
-| **Reconnect** | Selected DAC, active foreground service and live local ADB connection |
+| **Reconnect** | Selected DAC, enabled routing and a live local session; known device-list transitions wait before verified restoration/reapplication |
 | **Voice apps & calls** | Actual microphone route and headphone audibility require independent testing |
 
 Ambiguous device layouts and unsupported phone policies stop with a diagnostic. Inspection can still be useful when configuration is unavailable. See [the compatibility notes](docs/AUTOMATION.md#compatibility).
