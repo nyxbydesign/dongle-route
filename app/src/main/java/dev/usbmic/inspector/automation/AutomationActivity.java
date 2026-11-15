@@ -397,7 +397,7 @@ public class AutomationActivity extends Activity {
     private void checkStatus() {
         if (!session.isConnected()) { openConnection(); return; }
         AutomationSession.DacChoice d = selectedDongle(); AutomationSession.MicChoice m = selectedMicrophone();
-        session.routing(RoutingBridge.Action.STATUS, d == null ? -1 : d.vendor, d == null ? -1 : d.product, m == null ? -1 : m.id,
+        session.routing(RoutingBridge.Action.CHECK, d == null ? -1 : d.vendor, d == null ? -1 : d.product, m == null ? -1 : m.id,
                 (result, error) -> { if (!isDestroyed()) { if (error != null) message(error); showRoutingDetails(); } });
     }
     private void confirmDefaults() {
@@ -413,9 +413,11 @@ public class AutomationActivity extends Activity {
                 }).show();
     }
     private void showRoutingDetails() {
-        String info = "DongleRoute 0.7\nLocal control: " + (session.isConnected() ? "connected" : "offline")
+        String info = installedVersion() + "\nLocal control: " + (session.isConnected() ? "connected" : "offline")
                 + "\nBackground session: " + RoutingService.sessionRunning + "\nRouting requested: " + RoutingService.routingRequested + "\n\n" + RoutingService.status;
         RoutingProtocol.Result last = session.lastRoutingResult; if (last != null) info += "\n\nLast policy check\n" + last.describe();
+        RoutingProtocol.Result failure = session.lastRoutingFailure;
+        if (failure != null && failure != last) info += "\n\nLatest routing failure (kept after Stop)\n" + failure.describe();
         info += "\n\nRestoration may be needed: " + (session.needsRestoration() ? "yes" : "no");
         if (!dongles.isEmpty()) {
             info += "\n\nUSB inventory";
@@ -433,6 +435,14 @@ public class AutomationActivity extends Activity {
                 }).setPositiveButton("Close", null).create();
         details.setOnShowListener(dialog -> details.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(session.isConnected() && !session.isBusy() && !RoutingService.running));
         details.show();
+    }
+    private String installedVersion() {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return "DongleRoute " + info.versionName + " (" + info.getLongVersionCode() + ")";
+        } catch (android.content.pm.PackageManager.NameNotFoundException unavailable) {
+            return "DongleRoute (installed version unavailable)";
+        }
     }
     private void showLicenses() {
         try {

@@ -34,6 +34,7 @@ class AutomationSession {
     private RoutingBridge bridge;
     private volatile boolean restorationUnresolved = true;
     volatile RoutingProtocol.Result lastRoutingResult;
+    volatile RoutingProtocol.Result lastRoutingFailure;
     volatile String connectionStatus = "Disconnected. Pair and connect using this app's own identity.";
     volatile int connectionResultVersion;
 
@@ -163,11 +164,16 @@ class AutomationSession {
                 if (!probeCurrentConnection()) markConnectionLost();
                 throw unavailable;
             }
-            lastRoutingResult = result;
-            if (result.restorePending || result.state.equals("active")) rememberRestoration(true);
-            else if (result.ok && (result.state.equals("restored") || result.state.equals("idle") || result.state.equals("waiting"))) rememberRestoration(false);
+            recordRoutingResult(result);
             return result;
         }, callback, "Local ADB or routing-helper communication failed. Automatic writes are stopped. Reconnect and check status; saved preferences may still need restoration.");
+    }
+
+    void recordRoutingResult(RoutingProtocol.Result result) throws IOException {
+        lastRoutingResult = result;
+        if (!result.ok) lastRoutingFailure = result;
+        if (result.restorePending || result.state.equals("active")) rememberRestoration(true);
+        else if (result.ok && (result.state.equals("restored") || result.state.equals("idle") || result.state.equals("waiting"))) rememberRestoration(false);
     }
 
     void inventory(Callback<Inventory> callback) {

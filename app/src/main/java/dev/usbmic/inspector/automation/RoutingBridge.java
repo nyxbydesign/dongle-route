@@ -11,7 +11,7 @@ import java.util.Locale;
 
 /** Only this fixed helper protocol is exposed to the app's routing controls. */
 final class RoutingBridge {
-    enum Action { STATUS, TICK, STOP, DEFAULTS }
+    enum Action { STATUS, CHECK, TICK, STOP, DEFAULTS }
     private static final String DIRECTORY = "/data/local/tmp/dev.usbmic.inspector";
     private static final String HELPER = DIRECTORY + "/routing-helper.jar";
     private final byte[] asset;
@@ -68,6 +68,7 @@ final class RoutingBridge {
         if (action != Action.STOP) {
             if (vendor < 0 || vendor > 65535 || product < 0 || product > 65535) {
                 if (action == Action.TICK) throw new IOException("Select exactly one USB audio dongle before enabling automation.");
+                if (action == Action.CHECK) return command; // Retain the journal selection when the UI has none.
                 vendor = 0; product = 0; // Exact absent selection when no dongle is selected, never a wildcard.
             }
             command += " " + vendor + " " + product;

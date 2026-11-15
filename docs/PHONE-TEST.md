@@ -12,6 +12,8 @@ DongleRoute's layout, build and policy tests do not establish actual microphone 
 
 If the app reports a permission/API/inventory failure, do not change Android security settings to bypass it. Record the concise compatibility result and Android version, excluding pairing codes and credentials.
 
+For a routing-start failure, use Routing details → Check compatibility while connected and routing is off. This reads capabilities without applying preferences. Copy the resulting details, which include the installed app version and retain the latest helper failure even after Stop. Avoid repeatedly enabling routing to obtain the same error. A successful read-only check does not prove that policy writes or journal persistence will succeed.
+
 When upgrading from a helper-loading failure with the recovery screen locked, connect and tap Stop & restore once. A securely verified absent or stopped journal should report that no app-owned route needs restoration and unlock device selection. If saved ownership still exists, recovery must remain pending until it can be verified. Do not clear app data or delete its shell journal to bypass that state. Share the new capability-stage error privately if it remains blocked.
 
 If ADB or the process stops, preferences may remain. Reconnect and restore before forgetting pairing or uninstalling. If Android's paired-device entry was removed, re-pair the same app identity; pending restoration must not prevent that repair. An existing tunnel may not close immediately on every Android build. Check the app's observable connection status and use Routing details to copy its bounded session history if needed. Ports can change after a reboot, Wi-Fi change or Wireless debugging restart.

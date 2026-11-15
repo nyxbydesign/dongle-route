@@ -22,7 +22,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
@@ -32,6 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import dev.usbmic.inspector.shell.RoutingFailure.Stage;
 
 /** Fixed app_process protocol for an already authorized local ADB shell. No shell evaluator. */
 public final class InputRoutingHelper {
@@ -56,10 +56,10 @@ public final class InputRoutingHelper {
         int exitCode = 1;
         FileOutputStream lockStream = null;
         FileLock lock = null;
-        String stage = "fixed command validation";
+        Stage stage = Stage.COMMAND;
         try {
             String action = args.length > 0 ? args[0] : "";
-            if (!("status".equals(action) || "tick".equals(action) || "tick-retained".equals(action) || "stop".equals(action) || "defaults".equals(action))
+            if (!("status".equals(action) || "tick".equals(action) || "tick-retained".equals(action) || "stop".equals(action) || "defaults".equals(action) || "check".equals(action))
                     || !(args.length == 1 || ((args.length == 3 || args.length == 4) && !"stop".equals(action)))) {
                 throw new IllegalArgumentException("Fixed action or selection arguments invalid");
             }
@@ -67,8 +67,9 @@ public final class InputRoutingHelper {
                     ? new RoutingEngine.Selection(decimal(args[1]), decimal(args[2])) : null;
             Integer microphoneId = args.length == 4 ? microphoneId(args[3]) : null;
             if ("tick-retained".equals(action) && args.length != 3) throw new IllegalArgumentException("Retained tick requires only a DAC selection");
+            stage = Stage.IDENTITY;
             if (Process.myUid() != 2000) throw new SecurityException("ADB shell UID required");
-            stage = "private journal lock";
+            stage = Stage.JOURNAL_LOCK;
             {
                 ensureDirectory();
                 FileDescriptor fd = Os.open(LOCK, OsConstants.O_RDWR | OsConstants.O_CREAT | OsConstants.O_NOFOLLOW, FILE_MODE);
@@ -78,7 +79,7 @@ public final class InputRoutingHelper {
                 if (lock == null) throw new IllegalStateException("Another helper operation is active");
             }
             Journal store = new Journal();
-            stage = "audio backend or secure journal";
+            stage = Stage.JOURNAL_LOAD;
             RoutingEngine.Result result = RoutingEngine.execute(action, selection, microphoneId, store, AndroidBackend::new);
             output = json(result);
             exitCode = result.ok ? 0 : 1;
@@ -86,9 +87,8 @@ public final class InputRoutingHelper {
             // Avoid Binder error text, addresses and stack traces in the application protocol.
             try {
                 output = new JSONObject().put("ok", false).put("state", "blocked")
-                        .put("message", "Shell helper unavailable at " + (failure instanceof BackendUnavailable
-                                ? ((BackendUnavailable) failure).stage : stage) + " (" + rootCause(failure).getClass().getSimpleName()
-                                + "). No automatic retry; inspect status or reconnect.")
+                        .put("message", "Shell helper unavailable at " + RoutingFailure.describe(failure, stage)
+                                + ". No automatic retry; inspect compatibility or reconnect.")
                         .put("idle", false).put("restorePending", unresolvedJournal())
                         .put("writeAttempts", 0).put("ownedPresets", 0);
             } catch (Exception ignored) { }
@@ -102,11 +102,6 @@ public final class InputRoutingHelper {
         System.out.flush();
         deadline.interrupt();
         System.exit(exitCode);
-    }
-
-    private static final class BackendUnavailable extends Exception {
-        final String stage;
-        BackendUnavailable(String stage, Exception cause) { super(cause); this.stage = stage; }
     }
 
     private static int decimal(String value) {
@@ -140,7 +135,7 @@ public final class InputRoutingHelper {
         final int preferredRole;
 
         AndroidBackend() throws Exception {
-            String stage = "shell system context";
+            Stage stage = Stage.BACKEND_CONTEXT;
             try {
                 if (Looper.myLooper() == null) Looper.prepareMainLooper();
                 Class<?> threadClass = Class.forName("android.app.ActivityThread");
@@ -154,32 +149,41 @@ public final class InputRoutingHelper {
                 usb = (UsbManager) context.getSystemService(Context.USB_SERVICE);
                 if (audio == null || usb == null) throw new IllegalStateException("Inventory services unavailable");
                 requirePermission();
-                stage = "AudioDeviceAttributes";
+                stage = Stage.BACKEND_ATTRIBUTES;
                 Class<?> attributes = Class.forName("android.media.AudioDeviceAttributes");
                 attributesConstructor = attributes.getConstructor(int.class, int.class, String.class);
                 attributesRole = attributes.getMethod("getRole");
                 attributesType = attributes.getMethod("getType");
                 attributesAddress = attributes.getMethod("getAddress");
-                stage = "IAudioService capture preferences";
+                stage = Stage.BACKEND_AUDIO_SERVICE;
                 Class<?> audioInterface = Class.forName("android.media.IAudioService");
                 audioService = service("audio", "android.media.IAudioService$Stub");
                 javaGet = audioInterface.getMethod("getPreferredDevicesForCapturePreset", int.class);
                 javaSet = audioInterface.getMethod("setPreferredDevicesForCapturePreset", int.class, List.class);
                 javaClear = audioInterface.getMethod("clearPreferredDevicesForCapturePreset", int.class);
-                stage = "AudioSystem capture role query";
+                stage = Stage.BACKEND_NATIVE_QUERY;
                 Class<?> audioSystem = Class.forName("android.media.AudioSystem");
                 nativeGet = audioSystem.getMethod("getDevicesForRoleAndCapturePreset", int.class, int.class, List.class);
                 preferredRole = audioSystem.getField("DEVICE_ROLE_PREFERRED").getInt(null);
                 if (preferredRole != 1) throw new IllegalStateException("Unexpected native device role");
-                stage = "native audio policy binder";
+                stage = Stage.BACKEND_POLICY_BINDER;
                 policyBinder = binder("media.audio_policy");
-            } catch (Exception failure) { throw new BackendUnavailable(stage, failure); }
+            } catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
         }
 
-        void requirePermission() {
+        private AndroidBackend(Context context, AudioManager audio, UsbManager usb) {
+            this.context = context; this.audio = audio; this.usb = usb;
+            audioService = null; policyBinder = null;
+            javaGet = javaSet = javaClear = nativeGet = attributesRole = attributesType = attributesAddress = null;
+            attributesConstructor = null; preferredRole = 1;
+        }
+
+        void requirePermission() throws RoutingFailure {
+            try {
             if (Process.myUid() != 2000
                     || context.checkPermission("android.permission.MODIFY_AUDIO_ROUTING", Process.myPid(), Process.myUid())
                     != PackageManager.PERMISSION_GRANTED) throw new SecurityException("Routing permission unavailable");
+            } catch (Exception failure) { throw RoutingFailure.at(Stage.PERMISSION, failure); }
         }
 
         @Override public RoutingEngine.Observation observe(RoutingEngine.Selection selected,
@@ -200,146 +204,178 @@ public final class InputRoutingHelper {
         }
 
         @Override public void write(RoutingEngine.Write request) throws Exception {
-            int index = request.preset == 1 ? 0 : request.preset == 7 ? 1 : -1;
-            if (index < 0) throw new IllegalArgumentException("Unsupported capture preset");
-            RoutingEngine.Observation fresh = observe(request.selection, request.bottom, null);
-            if (fresh.authorized && fresh.idle && (fresh.inventorySettling || (fresh.safeInventory
-                    && request.requireAttached && (!fresh.attached || !Objects.equals(request.attachmentKey, fresh.attachmentKey))))) {
-                throw new RoutingEngine.InventoryTransition();
-            }
-            if (!fresh.authorized || !fresh.idle || !fresh.safeInventory || !request.bottom.equals(fresh.bottom)
-                    || !request.expected.equals(fresh.preferences[index])
-                    || (request.requireAttached && (!fresh.attached || !Objects.equals(request.attachmentKey, fresh.attachmentKey)))) {
-                throw new IllegalStateException("Fresh routing guards refused");
-            }
-            List<Object> desired = new ArrayList<>();
-            for (RoutingEngine.Device device : request.desired.devices) {
-                desired.add(attributesConstructor.newInstance(device.role, device.type, device.address));
-            }
-            requirePermission();
-            if (audio.getMode() != AudioManager.MODE_NORMAL || !audio.getActiveRecordingConfigurations().isEmpty()) {
-                throw new IllegalStateException("Audio became busy");
-            }
-            Object response = request.desired.isNone() ? javaClear.invoke(audioService, request.preset)
-                    : javaSet.invoke(audioService, request.preset, desired);
-            if (!(response instanceof Integer) || ((Integer) response) != 0) {
-                throw new IllegalStateException("Audio service refused routing mutation");
-            }
+            Stage stage = Stage.GUARDS;
+            try {
+                int index = request.preset == 1 ? 0 : request.preset == 7 ? 1 : -1;
+                if (index < 0) throw new IllegalArgumentException("Unsupported capture preset");
+                RoutingEngine.Observation fresh = observe(request.selection, request.bottom, null);
+                if (fresh.authorized && fresh.idle && (fresh.inventorySettling || (fresh.safeInventory
+                        && request.requireAttached && (!fresh.attached || !Objects.equals(request.attachmentKey, fresh.attachmentKey))))) {
+                    throw new RoutingEngine.InventoryTransition();
+                }
+                if (!fresh.authorized || !fresh.idle || !fresh.safeInventory || !request.bottom.equals(fresh.bottom)
+                        || !request.expected.equals(fresh.preferences[index])
+                        || (request.requireAttached && (!fresh.attached || !Objects.equals(request.attachmentKey, fresh.attachmentKey)))) {
+                    throw new IllegalStateException("Fresh routing guards refused");
+                }
+                stage = Stage.MUTATION_ATTRIBUTES;
+                List<Object> desired = new ArrayList<>();
+                for (RoutingEngine.Device device : request.desired.devices) {
+                    desired.add(attributesConstructor.newInstance(device.role, device.type, device.address));
+                }
+                stage = Stage.PERMISSION;
+                requirePermission();
+                stage = Stage.AUDIO_MODE;
+                boolean normal = audio.getMode() == AudioManager.MODE_NORMAL;
+                stage = Stage.RECORDINGS;
+                if (!normal || !audio.getActiveRecordingConfigurations().isEmpty()) {
+                    throw new IllegalStateException("Audio became busy");
+                }
+                stage = Stage.MUTATION_CALL;
+                Object response = request.desired.isNone() ? javaClear.invoke(audioService, request.preset)
+                        : javaSet.invoke(audioService, request.preset, desired);
+                stage = Stage.MUTATION_RESULT;
+                if (!(response instanceof Integer) || ((Integer) response) != 0) {
+                    throw new IllegalStateException("Audio service refused routing mutation");
+                }
+            } catch (RoutingEngine.InventoryTransition transition) { throw transition; }
+            catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
         }
 
         private Environment environment(RoutingEngine.Selection selected, RoutingEngine.Device retainedMicrophone,
                                         Integer selectedMicrophoneId) throws Exception {
-            requirePermission();
-            Environment result = new Environment();
-            result.idle = audio.getMode() == AudioManager.MODE_NORMAL && audio.getActiveRecordingConfigurations().isEmpty();
-            List<AudioDeviceInfo> inputs = new ArrayList<>(), outputs = new ArrayList<>();
-            List<MicrophoneSelector.Port> microphones = new ArrayList<>();
-            for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_ALL)) {
-                if (device.isSource() && !device.isSink() && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_MIC) {
-                    microphones.add(new MicrophoneSelector.Port(device.getId(),
-                            new RoutingEngine.Device(1, AudioDeviceInfo.TYPE_BUILTIN_MIC, device.getAddress())));
+            Stage stage = Stage.PERMISSION;
+            try {
+                requirePermission();
+                Environment result = new Environment();
+                stage = Stage.AUDIO_MODE;
+                boolean normal = audio.getMode() == AudioManager.MODE_NORMAL;
+                stage = Stage.RECORDINGS;
+                result.idle = normal && audio.getActiveRecordingConfigurations().isEmpty();
+                List<AudioDeviceInfo> inputs = new ArrayList<>(), outputs = new ArrayList<>();
+                List<MicrophoneSelector.Port> microphones = new ArrayList<>();
+                stage = Stage.AUDIO_INVENTORY;
+                for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_ALL)) {
+                    if (device.isSource() && !device.isSink() && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_MIC) {
+                        microphones.add(new MicrophoneSelector.Port(device.getId(),
+                                new RoutingEngine.Device(1, AudioDeviceInfo.TYPE_BUILTIN_MIC, device.getAddress())));
+                    }
+                    if (isUsb(device.getType())) {
+                        if (device.isSource()) inputs.add(device);
+                        if (device.isSink()) outputs.add(device);
+                    }
                 }
-                if (isUsb(device.getType())) {
-                    if (device.isSource()) inputs.add(device);
-                    if (device.isSink()) outputs.add(device);
+                stage = Stage.MICROPHONE_SELECTION;
+                MicrophoneSelector.Port target = retainedMicrophone != null
+                        ? MicrophoneSelector.resolve(microphones, retainedMicrophone)
+                        : MicrophoneSelector.choose(microphones, selectedMicrophoneId);
+                if (target != null) { result.bottom = target.device; result.microphoneId = target.id; }
+                if (selectedMicrophoneId != null) {
+                    MicrophoneSelector.Port requested = MicrophoneSelector.choose(microphones, selectedMicrophoneId);
+                    result.requestedMicrophone = requested == null ? null : requested.device;
                 }
-            }
-            MicrophoneSelector.Port target = retainedMicrophone != null
-                    ? MicrophoneSelector.resolve(microphones, retainedMicrophone)
-                    : MicrophoneSelector.choose(microphones, selectedMicrophoneId);
-            if (target != null) { result.bottom = target.device; result.microphoneId = target.id; }
-            if (selectedMicrophoneId != null) {
-                MicrophoneSelector.Port requested = MicrophoneSelector.choose(microphones, selectedMicrophoneId);
-                result.requestedMicrophone = requested == null ? null : requested.device;
-            }
-            List<UsbDevice> physical = new ArrayList<>(usb.getDeviceList().values());
-            result.attached = !physical.isEmpty();
-            boolean matches = physical.size() == 1 && selected != null
-                    && physical.get(0).getVendorId() == selected.vid && physical.get(0).getProductId() == selected.pid;
-            boolean validPair = false;
-            if (inputs.size() == 1 && outputs.size() == 1) {
-                AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
-                validPair = in.isSource() && !in.isSink() && out.isSink() && !out.isSource()
-                        && in.getId() != out.getId() && in.getType() == out.getType() && !in.getAddress().isEmpty()
-                        && in.getAddress().equals(out.getAddress());
-            }
-            UsbInventoryPolicy.State state = UsbInventoryPolicy.classify(physical.size(), matches, selected != null,
-                    inputs.size(), outputs.size(), validPair);
-            result.settling = state == UsbInventoryPolicy.State.SETTLING;
-            result.refused = state == UsbInventoryPolicy.State.REFUSED;
-            result.safe = state == UsbInventoryPolicy.State.ABSENT || state == UsbInventoryPolicy.State.ATTACHED;
-            if (state == UsbInventoryPolicy.State.ABSENT) {
-                result.key = "absent";
-            } else if (state == UsbInventoryPolicy.State.ATTACHED) {
-                UsbDevice dac = physical.get(0);
-                AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
-                result.key = digest(selected.vid + ":" + selected.pid + ":" + dac.getDeviceName()
-                        + ":" + in.getId() + ":" + in.getType() + ":" + in.getAddress()
-                        + ":" + out.getId() + ":" + out.getType() + ":" + out.getAddress());
-            }
-            return result;
+                stage = Stage.USB_INVENTORY;
+                List<UsbDevice> physical = new ArrayList<>(usb.getDeviceList().values());
+                result.attached = !physical.isEmpty();
+                boolean matches = physical.size() == 1 && selected != null
+                        && physical.get(0).getVendorId() == selected.vid && physical.get(0).getProductId() == selected.pid;
+                stage = Stage.USB_MATCH;
+                boolean validPair = false;
+                if (inputs.size() == 1 && outputs.size() == 1) {
+                    AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
+                    validPair = in.isSource() && !in.isSink() && out.isSink() && !out.isSource()
+                            && in.getId() != out.getId() && in.getType() == out.getType() && !in.getAddress().isEmpty()
+                            && in.getAddress().equals(out.getAddress());
+                }
+                UsbInventoryPolicy.State state = UsbInventoryPolicy.classify(physical.size(), matches, selected != null,
+                        inputs.size(), outputs.size(), validPair);
+                result.settling = state == UsbInventoryPolicy.State.SETTLING;
+                result.refused = state == UsbInventoryPolicy.State.REFUSED;
+                result.safe = state == UsbInventoryPolicy.State.ABSENT || state == UsbInventoryPolicy.State.ATTACHED;
+                if (state == UsbInventoryPolicy.State.ABSENT) {
+                    result.key = "absent";
+                } else if (state == UsbInventoryPolicy.State.ATTACHED) {
+                    UsbDevice dac = physical.get(0);
+                    AudioDeviceInfo in = inputs.get(0), out = outputs.get(0);
+                    stage = Stage.ATTACHMENT_KEY;
+                    result.key = digest(selected.vid + ":" + selected.pid + ":" + dac.getDeviceName()
+                            + ":" + in.getId() + ":" + in.getType() + ":" + in.getAddress()
+                            + ":" + out.getId() + ":" + out.getType() + ":" + out.getAddress());
+                }
+                return result;
+            } catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
         }
 
         private RoutingEngine.Preference[] preferences() throws Exception {
-            String stage = "Platform capture preference query";
+            Stage stage = Stage.NATIVE_CAPTURE_QUERY;
             try {
                 PreferenceRead[] reads = { preferenceRead(1), preferenceRead(7) };
                 boolean absenceProof = false;
                 for (PreferenceRead read : reads) if (read.before.status != 0) absenceProof = true;
                 CaptureRoleMap before = null, after = null;
                 if (absenceProof) {
-                    stage = "Native capture-role map proof";
+                    stage = Stage.NATIVE_MAP_DUMP;
                     before = captureMap();
-                    stage = "Platform capture preference cross-check";
+                    stage = Stage.CAPTURE_CONSISTENCY;
                     reads = new PreferenceRead[]{ preferenceRead(1), preferenceRead(7) };
-                    stage = "Native capture-role map proof";
+                    stage = Stage.NATIVE_MAP_DUMP;
                     after = captureMap();
                     if (!before.equals(after)) throw new IllegalStateException("Native capture map changed during query");
                 }
                 RoutingEngine.Preference[] result = new RoutingEngine.Preference[2];
-                stage = "Capture preference consistency proof";
+                stage = Stage.CAPTURE_CONSISTENCY;
                 for (int i = 0; i < 2; i++) {
                     PreferenceRead read = reads[i];
                     result[i] = CapturePreferenceProof.resolve(RoutingEngine.PRESETS[i], read.before, read.javaDevices,
                             read.after, before, after);
                 }
                 return result;
-            } catch (Exception failure) { throw new RoutingEngine.QueryUnavailable(stage, failure); }
+            } catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
         }
 
         private PreferenceRead preferenceRead(int preset) throws Exception {
             CapturePreferenceProof.Read before = nativePreference(preset);
-            Object value = javaGet.invoke(audioService, preset);
+            Object value;
+            try { value = javaGet.invoke(audioService, preset); }
+            catch (Exception failure) { throw RoutingFailure.at(Stage.JAVA_CAPTURE_QUERY, failure); }
             List<RoutingEngine.Device> javaDevices = devices(value);
             CapturePreferenceProof.Read after = nativePreference(preset);
             if (!before.agrees(after) || !before.devices.equals(javaDevices)) {
-                throw new IllegalStateException("Capture preferences changed or disagree");
+                throw new RoutingFailure(Stage.CAPTURE_CONSISTENCY, new IllegalStateException());
             }
             return new PreferenceRead(before, javaDevices, after);
         }
 
         private CapturePreferenceProof.Read nativePreference(int preset) throws Exception {
             List<Object> devices = new ArrayList<>();
-            Object status = nativeGet.invoke(null, preset, preferredRole, devices);
+            Object status;
+            try { status = nativeGet.invoke(null, preset, preferredRole, devices); }
+            catch (Exception failure) { throw RoutingFailure.at(Stage.NATIVE_CAPTURE_QUERY, failure); }
             if (!(status instanceof Integer)) throw new IllegalStateException("Native capture status unavailable");
             return new CapturePreferenceProof.Read((Integer) status, devices(devices));
         }
 
         private List<RoutingEngine.Device> devices(Object value) throws Exception {
-            if (!(value instanceof List) || ((List<?>) value).size() > 16) {
-                throw new IllegalStateException("Capture device list unavailable");
-            }
-            List<RoutingEngine.Device> result = new ArrayList<>();
-            for (Object attribute : (List<?>) value) {
-                result.add(new RoutingEngine.Device((Integer) attributesRole.invoke(attribute),
-                        (Integer) attributesType.invoke(attribute), (String) attributesAddress.invoke(attribute)));
-            }
-            if (!result.isEmpty()) RoutingEngine.Preference.devices(result);
-            return result;
+            try {
+                if (!(value instanceof List) || ((List<?>) value).size() > 16) {
+                    throw new IllegalStateException("Capture device list unavailable");
+                }
+                List<RoutingEngine.Device> result = new ArrayList<>();
+                for (Object attribute : (List<?>) value) {
+                    result.add(new RoutingEngine.Device((Integer) attributesRole.invoke(attribute),
+                            (Integer) attributesType.invoke(attribute), (String) attributesAddress.invoke(attribute)));
+                }
+                if (!result.isEmpty()) RoutingEngine.Preference.devices(result);
+                return result;
+            } catch (Exception failure) { throw RoutingFailure.at(Stage.DEVICE_ATTRIBUTES, failure); }
         }
 
         private CaptureRoleMap captureMap() throws Exception {
-            return CaptureRoleMap.parse(BoundedBinderDump.read(policyBinder, STARTED + 12_000));
+            String dump;
+            try { dump = BoundedBinderDump.read(policyBinder, STARTED + 12_000); }
+            catch (Exception failure) { throw RoutingFailure.at(Stage.NATIVE_MAP_DUMP, failure); }
+            try { return CaptureRoleMap.parse(dump); }
+            catch (Exception failure) { throw RoutingFailure.at(Stage.NATIVE_MAP_PARSE, failure); }
         }
         private static final class PreferenceRead {
             final CapturePreferenceProof.Read before, after;
@@ -372,18 +408,26 @@ public final class InputRoutingHelper {
     private static final class Journal implements RoutingEngine.Store {
         private JSONObject document;
         @Override public RoutingEngine.Session load() throws Exception {
-            StructStat stat = statIfExists(JOURNAL);
-            if (stat == null) return null;
-            verifyDirectory(); verifyRegular(JOURNAL);
-            if (stat.st_size <= 0 || stat.st_size > 32_768) throw new IllegalStateException("Invalid journal size");
-            FileDescriptor fd = Os.open(JOURNAL, OsConstants.O_RDONLY | OsConstants.O_NOFOLLOW, 0);
-            byte[] bytes = new byte[(int) stat.st_size];
-            try (FileInputStream input = new FileInputStream(fd)) {
-                int offset = 0, count;
-                while (offset < bytes.length && (count = input.read(bytes, offset, bytes.length - offset)) > 0) offset += count;
-                if (offset != bytes.length || input.read() != -1) throw new IllegalStateException("Journal changed during read");
-            }
-            document = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+            Stage stage = Stage.JOURNAL_LOAD;
+            try {
+                StructStat stat = statIfExists(JOURNAL);
+                if (stat == null) return null;
+                verifyDirectory(); verifyRegular(JOURNAL);
+                if (stat.st_size <= 0 || stat.st_size > 32_768) throw new IllegalStateException("Invalid journal size");
+                FileDescriptor fd = Os.open(JOURNAL, OsConstants.O_RDONLY | OsConstants.O_NOFOLLOW, 0);
+                byte[] bytes = new byte[(int) stat.st_size];
+                try (FileInputStream input = new FileInputStream(fd)) {
+                    int offset = 0, count;
+                    while (offset < bytes.length && (count = input.read(bytes, offset, bytes.length - offset)) > 0) offset += count;
+                    if (offset != bytes.length || input.read() != -1) throw new IllegalStateException("Journal changed during read");
+                }
+                stage = Stage.JOURNAL_DECODE;
+                document = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+                return decode(document);
+            } catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
+        }
+
+        private static RoutingEngine.Session decode(JSONObject document) throws Exception {
             if (document.getInt("version") != 1) throw new IllegalStateException("Unknown journal version");
             RoutingEngine.Session session = new RoutingEngine.Session();
             session.phase = document.getString("phase");
@@ -414,6 +458,56 @@ public final class InputRoutingHelper {
         }
 
         @Override public void save(RoutingEngine.Session session) throws Exception {
+            Stage stage = Stage.JOURNAL_SERIALIZE;
+            try {
+                JSONObject next = encode(session);
+                JSONArray steps = next.getJSONArray("steps");
+                if (document != null) {
+                    JSONObject previous = new JSONObject(document.toString());
+                    previous.remove("events");
+                    if (previous.toString().equals(next.toString())) return;
+                }
+                JSONArray events = document == null ? new JSONArray() : document.optJSONArray("events");
+                if (events == null) events = new JSONArray();
+                JSONArray bounded = new JSONArray();
+                for (int i = Math.max(0, events.length() - 15); i < events.length(); i++) bounded.put(events.getJSONObject(i));
+                bounded.put(new JSONObject().put("time", System.currentTimeMillis()).put("phase", session.phase).put("steps", steps));
+                next.put("events", bounded);
+                byte[] bytes = next.toString().getBytes(StandardCharsets.UTF_8);
+                if (bytes.length > 32_768) throw new IllegalStateException("Journal exceeds bound");
+                stage = Stage.JOURNAL_DIRECTORY;
+                ensureDirectory();
+                if (statIfExists(TEMP) != null) {
+                    verifyRegular(TEMP);
+                    if (!new File(TEMP).delete()) throw new IllegalStateException("Stale journal temporary could not be removed");
+                }
+                if (statIfExists(JOURNAL) != null) verifyRegular(JOURNAL);
+                stage = Stage.JOURNAL_TEMP_CREATE;
+                FileDescriptor fd = Os.open(TEMP, OsConstants.O_WRONLY | OsConstants.O_CREAT | OsConstants.O_EXCL | OsConstants.O_NOFOLLOW, FILE_MODE);
+                try (FileOutputStream output = new FileOutputStream(fd)) {
+                    stage = Stage.JOURNAL_TEMP_WRITE;
+                    output.write(bytes); output.flush();
+                    stage = Stage.JOURNAL_TEMP_SYNC;
+                    output.getFD().sync();
+                }
+                stage = Stage.JOURNAL_TEMP_VERIFY;
+                verifyRegular(TEMP);
+                stage = Stage.JOURNAL_RENAME;
+                Os.rename(TEMP, JOURNAL);
+                stage = Stage.JOURNAL_DIRECTORY_SYNC;
+                FileDescriptor directory = Os.open(DIRECTORY, OsConstants.O_RDONLY | OsConstants.O_NOFOLLOW, 0);
+                try {
+                    StructStat opened = Os.fstat(directory);
+                    if (!OsConstants.S_ISDIR(opened.st_mode) || opened.st_uid != 2000 || (opened.st_mode & 0777) != 0700) {
+                        throw new SecurityException("Opened helper directory owner or mode invalid");
+                    }
+                    Os.fsync(directory);
+                } finally { Os.close(directory); }
+                document = next;
+            } catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
+        }
+
+        private static JSONObject encode(RoutingEngine.Session session) throws Exception {
             JSONObject next = new JSONObject().put("version", 1).put("phase", session.phase).put("defaults", session.defaults)
                     .put("recoveryBlocked", session.recoveryBlocked)
                     .put("selected", session.selection == null ? JSONObject.NULL : new JSONObject().put("vid", session.selection.vid).put("pid", session.selection.pid))
@@ -422,38 +516,7 @@ public final class InputRoutingHelper {
             JSONArray originals = new JSONArray(), steps = new JSONArray();
             for (int i = 0; i < 2; i++) { originals.put(preference(session.originals[i])); steps.put(session.steps[i]); }
             next.put("originals", originals).put("steps", steps);
-            if (document != null) {
-                JSONObject previous = new JSONObject(document.toString());
-                previous.remove("events");
-                if (previous.toString().equals(next.toString())) return;
-            }
-            JSONArray events = document == null ? new JSONArray() : document.optJSONArray("events");
-            if (events == null) events = new JSONArray();
-            JSONArray bounded = new JSONArray();
-            for (int i = Math.max(0, events.length() - 15); i < events.length(); i++) bounded.put(events.getJSONObject(i));
-            bounded.put(new JSONObject().put("time", System.currentTimeMillis()).put("phase", session.phase).put("steps", steps));
-            next.put("events", bounded);
-            byte[] bytes = next.toString().getBytes(StandardCharsets.UTF_8);
-            if (bytes.length > 32_768) throw new IllegalStateException("Journal exceeds bound");
-            ensureDirectory();
-            if (statIfExists(TEMP) != null) {
-                verifyRegular(TEMP);
-                if (!new File(TEMP).delete()) throw new IllegalStateException("Stale journal temporary could not be removed");
-            }
-            if (statIfExists(JOURNAL) != null) verifyRegular(JOURNAL);
-            FileDescriptor fd = Os.open(TEMP, OsConstants.O_WRONLY | OsConstants.O_CREAT | OsConstants.O_EXCL | OsConstants.O_NOFOLLOW, FILE_MODE);
-            try (FileOutputStream output = new FileOutputStream(fd)) { output.write(bytes); output.flush(); output.getFD().sync(); }
-            verifyRegular(TEMP);
-            Os.rename(TEMP, JOURNAL);
-            FileDescriptor directory = Os.open(DIRECTORY, OsConstants.O_RDONLY | OsConstants.O_NOFOLLOW, 0);
-            try {
-                StructStat opened = Os.fstat(directory);
-                if (!OsConstants.S_ISDIR(opened.st_mode) || opened.st_uid != 2000 || (opened.st_mode & 0777) != 0700) {
-                    throw new SecurityException("Opened helper directory owner or mode invalid");
-                }
-                Os.fsync(directory);
-            } finally { Os.close(directory); }
-            document = next;
+            return next;
         }
 
         private static RoutingEngine.Device device(JSONObject value) throws Exception {
@@ -494,13 +557,17 @@ public final class InputRoutingHelper {
         }
     }
     private static void verifyDirectory() throws Exception {
-        StructStat stat = Os.lstat(DIRECTORY);
+        verifyDirectoryStat(Os.lstat(DIRECTORY));
+    }
+    private static void verifyDirectoryStat(StructStat stat) {
         if (!OsConstants.S_ISDIR(stat.st_mode) || stat.st_uid != 2000 || (stat.st_mode & 0777) != 0700) {
             throw new SecurityException("Helper directory owner or mode invalid");
         }
     }
     private static void verifyRegular(String path) throws Exception {
-        StructStat stat = Os.lstat(path);
+        verifyRegularStat(Os.lstat(path));
+    }
+    private static void verifyRegularStat(StructStat stat) {
         if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_uid != 2000 || stat.st_nlink != 1 || (stat.st_mode & 0777) != FILE_MODE) {
             throw new SecurityException("Helper file owner, link count or mode invalid");
         }
@@ -519,10 +586,5 @@ public final class InputRoutingHelper {
         }
         return text.toString();
     }
-    private static Throwable rootCause(Throwable failure) {
-        while ((failure instanceof InvocationTargetException || failure instanceof BackendUnavailable) && failure.getCause() != null) {
-            failure = failure.getCause();
-        }
-        return failure;
-    }
+
 }

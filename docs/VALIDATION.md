@@ -2,6 +2,23 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.9 validation (2026-11-15)
+
+This is a diagnostic update for a reported routing-start failure. It fixes a stale report-version label, preserves the latest helper failure after Stop, and identifies failing operations through fixed stages and safe error categories. Check compatibility now exercises the backend even without active ownership and makes no journal or policy writes. The exact phone-side failure is still unverified; this release does not claim to resolve it.
+
+- Passed 50 routing scenarios / 437 assertions, 30 preference-proof checks and four safe-diagnostic checks. Read-only checks cover absent, active, interrupted and conflict ownership without saves or writes. Failure tests retain an apply/write cause when a later restoration/query operation also fails and exclude raw error text from diagnostics.
+- Passed 30 unique app cases: thirteen service lifecycle cases, eight Android-view cases, one worker-order case, two framework/bridge cases, three shadow-pipe/diagnostic cases, and three adapter/journal cases. The latter exercise the actual inventory method using framework objects under Robolectric, the journal JSON codec and file-metadata predicates. One microphone fixture initially used an output-oriented type conversion; it was repaired to assert native input type, role, ID and address, then only that failed method was rerun. These checks do not establish physical-device inventory, kernel durability or SELinux behavior.
+- App and instrumentation assembly passed. Lint passed with zero errors and the four existing reviewed warnings; protocol checks passed 42 assertions. Unchanged transport checks are reused. The initial automatic build-approval review timed out before process launch; its permitted single retry ran successfully.
+- Verified version code 9 / 0.9-diagnostic, signer continuity, the same four permissions, native ELF/ZIP 16 KB alignment, nine notices, the new diagnostic helper, absence of obsolete native-policy dependencies and removal of the hardcoded 0.7 report label. The embedded helper exactly matches the generated helper. The APK stayed unchanged through the test-fixture repair.
+
+APK: 15,244,916 bytes. SHA-256:
+
+```text
+6a4f9b83dd2be2244e87985d948cd8d47343ec024fdb79e207328e7d10fd73a4
+```
+
+No connected or advertised ADB device was found. An explicitly requested wireless connection then failed before authentication with Windows socket-access error 10013. No phone installation, policy mutation, audio test or USB claim occurred. Phone-side diagnosis and actual routing remain blocked. Original failures, passing results and artifact receipts are retained in ignored evidence/0.9/.
+
 ## Version 0.8 validation (2026-11-15)
 
 A phone report showed local ADB connected while the helper failed with ClassNotFoundException and Stop repeatedly left recovery pending. This update removes the generated native-policy Java dependencies, verifies absent or fully stopped ownership before loading the audio adapter, and fixes the bridge rejecting retained-microphone monitoring commands. Saved or uncertain ownership is preserved. The recovery screen now shows the specific helper failure.

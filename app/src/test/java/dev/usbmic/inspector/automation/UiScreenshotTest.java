@@ -173,6 +173,23 @@ public final class UiScreenshotTest {
     private Object get(AutomationActivity a, String name) throws Exception {
         Field field = AutomationActivity.class.getDeclaredField(name); field.setAccessible(true); return field.get(a);
     }
+
+    @Test public void reportUsesInstalledVersionAndKeepsFailureAfterSuccessfulStop() throws Exception {
+        MainActivity activity = start(412, 892);
+        AutomationSession session = AutomationSession.get(activity);
+        RoutingProtocol.Result failure = new RoutingProtocol.Result(false, "blocked", "JOURNAL_TEMP_SYNC (SyncFailedException)", false, true);
+        session.recordRoutingResult(failure);
+        session.recordRoutingResult(new RoutingProtocol.Result(true, "idle", "No app-owned routing to restore.", false, false));
+        assertSame(failure, session.lastRoutingFailure); assertNotSame(failure, session.lastRoutingResult);
+        assertFalse(session.needsRestoration());
+        invoke(activity, "showRoutingDetails");
+        android.app.AlertDialog dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        String report = shadowOf(dialog).getMessage().toString();
+        android.content.pm.PackageInfo info = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
+        assertTrue(report.startsWith("DongleRoute " + info.versionName + " (" + info.getLongVersionCode() + ")"));
+        assertTrue(report.contains("Latest routing failure (kept after Stop)")); assertTrue(report.contains(failure.message));
+        assertTrue(report.contains("No app-owned routing to restore.")); dialog.dismiss();
+    }
     private void set(AutomationActivity a, String name, Object value) throws Exception {
         Field field = AutomationActivity.class.getDeclaredField(name); field.setAccessible(true); field.set(a, value);
     }

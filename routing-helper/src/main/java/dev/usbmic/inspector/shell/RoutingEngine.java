@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import dev.usbmic.inspector.shell.RoutingFailure.Stage;
 
 /** Pure state machine. Backend writes must repeat the guards and expected-value comparison. */
 public final class RoutingEngine {
@@ -95,10 +96,6 @@ public final class RoutingEngine {
     public static final class InventoryTransition extends Exception {
         public InventoryTransition() { super("Selected USB inventory is settling"); }
     }
-    public static final class QueryUnavailable extends Exception {
-        public final String stage;
-        public QueryUnavailable(String stage, Exception cause) { super(cause); this.stage = stage; }
-    }
 
     public static final class Write {
         public final int preset;
@@ -128,11 +125,15 @@ public final class RoutingEngine {
     /** The caller holds the private journal lock and has verified its shell identity. */
     public static Result execute(String action, Selection selected, Integer microphoneId,
                                  Store store, BackendFactory factory) throws Exception {
-        if (("stop".equals(action) || "status".equals(action)) && noOwnership(store.load())) {
+        Session saved;
+        try { saved = store.load(); } catch (Exception failure) { throw RoutingFailure.at(Stage.JOURNAL_LOAD, failure); }
+        if (("stop".equals(action) || "status".equals(action)) && noOwnership(saved)) {
             return new Result(true, "idle", "No app-owned routing to restore. No audio policy changes made.",
                     false, false, 0, 0);
         }
-        return new RoutingEngine(factory.create(), store).run(action, selected, microphoneId);
+        Backend backend;
+        try { backend = factory.create(); } catch (Exception failure) { throw RoutingFailure.at(Stage.BACKEND_CONTEXT, failure); }
+        return new RoutingEngine(backend, store).run(action, selected, microphoneId);
     }
 
     public static final class Session {
@@ -176,6 +177,9 @@ public final class RoutingEngine {
     private boolean lastIdle;
     private String currentAction;
     private Integer selectedMicrophoneId;
+    private Stage stage = Stage.COMMAND;
+    private String firstApplyFailure;
+    private String firstRestoreFailure;
     public RoutingEngine(Backend backend, Store store) { this.backend = backend; this.store = store; }
 
     public Result run(String action, Selection selected) {
@@ -183,12 +187,13 @@ public final class RoutingEngine {
     }
 
     public Result run(String action, Selection selected, Integer microphoneId) {
-        writeAttempts = 0; lastIdle = false;
+        writeAttempts = 0; lastIdle = false; firstApplyFailure = firstRestoreFailure = null; stage = Stage.COMMAND;
         currentAction = action; selectedMicrophoneId = microphoneId;
         try {
-            if (!"status".equals(action) && !"tick".equals(action) && !"tick-retained".equals(action) && !"stop".equals(action) && !"defaults".equals(action)) {
+            if (!"status".equals(action) && !"tick".equals(action) && !"tick-retained".equals(action) && !"stop".equals(action) && !"defaults".equals(action) && !"check".equals(action)) {
                 return result(false, "blocked", "Unknown fixed action.", false);
             }
+            stage = Stage.JOURNAL_LOAD;
             session = store.load();
             if ("tick-retained".equals(action) && (microphoneId != null || selected == null || session == null
                     || session.defaults || session.recoveryBlocked || !selected.equals(session.selection)
@@ -200,6 +205,7 @@ public final class RoutingEngine {
             }
             Selection effective = selected != null ? selected : session == null ? null : session.selection;
             Observation initial = observe(effective);
+            if ("check".equals(action)) return check(initial);
             if ("status".equals(action)) return status(initial);
             if (!initial.authorized) return result(false, "blocked", "Shell UID or routing permissions unavailable.", pending());
             if (session != null && !STOPPED.equals(session.phase) && !session.pending()
@@ -214,10 +220,10 @@ public final class RoutingEngine {
             if ("stop".equals(action)) {
                 if (session == null || STOPPED.equals(session.phase)) return result(true, "idle", "No automated ownership to restore.", false);
                 if (CONFLICT.equals(session.phase)) {
-                    session.phase = STOPPED; store.save(session);
+                    session.phase = STOPPED; save();
                     return result(true, "restored", "External preferences preserved. Ownership ended without overwriting them.", false);
                 }
-                session.phase = RESTORING; store.save(session);
+                session.phase = RESTORING; save();
                 return restore("Original input preferences restored.", true);
             }
             if (session != null && CONFLICT.equals(session.phase)) {
@@ -225,7 +231,7 @@ public final class RoutingEngine {
             }
             if (session != null && session.pending()) {
                 if (APPLYING.equals(session.phase)) session.recoveryBlocked = true;
-                session.phase = RESTORING; store.save(session);
+                session.phase = RESTORING; save();
                 return restore(session.recoveryBlocked
                         ? "Interrupted operation reconciled; originals restored. Enable again deliberately."
                         : "Deferred restoration completed; original input preferences restored.", !session.recoveryBlocked);
@@ -241,7 +247,7 @@ public final class RoutingEngine {
                 if (!reconcile(initial)) return conflict();
                 if (!validMicrophone(initial.bottom) || !session.bottom.equals(initial.bottom)) return missingMicrophone();
                 if (!initial.attached || !Objects.equals(session.attachmentKey, initial.attachmentKey)) {
-                    session.phase = RESTORING; store.save(session);
+                    session.phase = RESTORING; save();
                     return restore(initial.attached ? "DAC re-enumerated; previous input preferences restored before reapplying."
                             : "DAC detached; original input preferences restored.", true);
                 }
@@ -251,18 +257,37 @@ public final class RoutingEngine {
             if (!initial.attached) return result(true, "idle", "Selected DAC absent; no preferences changed.", false);
             if (!initial.idle) return result(true, "busy", "Call or recording active; applying is deferred.", false);
             if (!validMicrophone(initial.bottom)) return missingMicrophone();
+            stage = Stage.ENGINE_PREPARE;
             session = create(effective, initial, false);
-            store.save(session); // Both originals are durable before the first possible mutation.
+            save(); // Both originals are durable before the first possible mutation.
             return apply();
         } catch (Exception failure) {
-            return result(false, "blocked", failure instanceof QueryUnavailable
-                    ? ((QueryUnavailable) failure).stage + " unavailable or inconsistent. No routing retry; inspect details or Stop."
-                    : "Query, journal or guarded routing operation unavailable. No blind retry; inspect status or Stop.", pending());
+            return result(false, "blocked", "Routing unavailable at " + RoutingFailure.describe(failure, stage)
+                    + ". No automatic retry; inspect compatibility or Stop.", pending());
         }
     }
 
     public static boolean noOwnership(Session session) {
         return session == null || (STOPPED.equals(session.phase) && !session.pending() && session.owned() == 0);
+    }
+
+    private Result check(Observation observation) {
+        if (!observation.authorized) return result(false, "blocked", "Read-only check: routing permission unavailable.", pending());
+        if (observation.inventorySettling) return waiting();
+        if (!observation.safeInventory) return result(false, "blocked", "Read-only check: selected USB inventory is ambiguous or unsupported.", pending());
+        if (!validMicrophone(observation.bottom)) return missingMicrophone();
+        if (!noOwnership(session)) return status(observation);
+        return result(true, observation.idle ? "idle" : "busy", "Read-only platform, journal and inventory checks completed. Journal write durability and calling-app routing are untested. No routing changes made.", false);
+    }
+
+    private void save() throws Exception {
+        stage = Stage.JOURNAL_SAVE;
+        try { store.save(session); } catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
+    }
+    private void write(Write request) throws Exception {
+        stage = Stage.GUARDED_WRITE;
+        try { backend.write(request); } catch (InventoryTransition transition) { throw transition; }
+        catch (Exception failure) { throw RoutingFailure.at(stage, failure); }
     }
 
     private Result status(Observation observation) {
@@ -290,7 +315,7 @@ public final class RoutingEngine {
             }
         }
         session = create(selected, observation, true);
-        store.save(session);
+        save();
         return apply();
     }
 
@@ -310,18 +335,18 @@ public final class RoutingEngine {
                 if (current.inventorySettling) throw new InventoryTransition();
                 if (!current.idle) {
                     session.recoveryBlocked = true;
-                    session.phase = RESTORING; store.save(session);
+                    session.phase = RESTORING; save();
                     return result(true, "busy", "Audio became busy; partial apply will be restored after it is idle.", true);
                 }
                 requireWritable(current, !session.defaults);
                 if (session.originals[i].equals(session.desired)) continue;
                 session.steps[i] = APPLY_INTENT;
-                store.save(session);
+                save();
                 writeAttempts++;
-                backend.write(new Write(i, session.originals[i], session.desired, session, true));
+                write(new Write(i, session.originals[i], session.desired, session, true));
                 Observation after = observe(session.selection);
-                if (!session.desired.equals(after.preferences[i])) throw new IllegalStateException("Readback failed");
-                session.steps[i] = OWNED; store.save(session);
+                if (!session.desired.equals(after.preferences[i])) throw new RoutingFailure(Stage.APPLY_READBACK, new IllegalStateException());
+                session.steps[i] = OWNED; save();
             }
             Observation finalState = observe(session.selection);
             if (!reconcile(finalState)) return conflict();
@@ -331,21 +356,23 @@ public final class RoutingEngine {
             if (session.defaults) {
                 session.phase = STOPPED;
                 session.steps = new int[]{RESTORED, RESTORED};
-                store.save(session);
+                save();
                 return result(true, "restored", "MIC and VOICE_COMMUNICATION use verified Android defaults. Automation is stopped.", false);
             }
-            session.phase = ACTIVE; store.save(session);
+            session.phase = ACTIVE; save();
             return result(true, "active", "MIC and VOICE_COMMUNICATION prefer the selected built-in microphone. USB output was not changed; actual app routing still needs verification.", false);
         } catch (InventoryTransition transition) {
             session.phase = RESTORING;
-            store.save(session);
+            save();
             return waiting();
         } catch (Exception failure) {
+            firstApplyFailure = RoutingFailure.describe(failure, stage);
             session.recoveryBlocked = true;
             session.phase = RESTORING;
-            try { store.save(session); }
+            try { save(); }
             catch (Exception journalFailure) {
-                return result(false, "blocked", "Apply interrupted; durable intent retained. Stop is required to reconcile ownership.", true);
+                return result(false, "blocked", "Apply interrupted; recovery journal unavailable at " + RoutingFailure.describe(journalFailure, Stage.JOURNAL_SAVE)
+                        + ". Durable intent retained; Stop is required.", true);
             }
             return restore("Apply failed; originals restored after readback reconciliation. Enable again deliberately.", false);
         }
@@ -365,29 +392,31 @@ public final class RoutingEngine {
             requireWritable(current, false);
             if (session.steps[i] != OWNED && session.steps[i] != RESTORE_INTENT) continue;
             if (session.originals[i].equals(current.preferences[i])) {
-                session.steps[i] = RESTORED; store.save(session); continue;
+                session.steps[i] = RESTORED; save(); continue;
             }
             session.steps[i] = RESTORE_INTENT;
-            store.save(session);
+            save();
             try {
                 writeAttempts++;
-                backend.write(new Write(i, session.desired, session.originals[i], session, false));
+                write(new Write(i, session.desired, session.originals[i], session, false));
             } catch (InventoryTransition transition) {
                 return waiting();
             } catch (Exception failure) {
+                firstRestoreFailure = RoutingFailure.describe(failure, Stage.GUARDED_WRITE);
                 Observation afterFailure = observe(session.selection);
                 if (!reconcile(afterFailure)) return conflict();
-                store.save(session);
-                return result(false, "blocked", "Restoration write failed; actual preferences reconciled. Stop again explicitly; no blind retry.", session.owned() > 0);
+                save();
+                return result(false, "blocked", "Restoration write failed at " + RoutingFailure.describe(failure, Stage.GUARDED_WRITE)
+                        + "; preferences reconciled. Stop again explicitly; no blind retry.", session.owned() > 0);
             }
             Observation after = observe(session.selection);
             if (!session.originals[i].equals(after.preferences[i])) {
                 if (!reconcile(after)) return conflict();
-                return result(false, "blocked", "Restoration readback failed; ownership journal retained. Stop again explicitly.", true);
+                return result(false, "blocked", "Restoration failed at RESTORE_READBACK (IllegalStateException); ownership journal retained. Stop again explicitly.", true);
             }
-            session.steps[i] = RESTORED; store.save(session);
+            session.steps[i] = RESTORED; save();
         }
-        session.phase = STOPPED; store.save(session);
+        session.phase = STOPPED; save();
         return result(ok, "restored", complete, false);
     }
 
@@ -408,14 +437,14 @@ public final class RoutingEngine {
                 if (!current.equals(session.desired)) return false;
             } else if (!current.equals(session.originals[i])) return false;
         }
-        if (changed) store.save(session);
+        if (changed) save();
         return true;
     }
 
     private Result conflict() throws Exception {
         session.phase = CONFLICT;
         session.steps = new int[]{RESTORED, RESTORED};
-        store.save(session);
+        save();
         return result(false, "conflict", "External preferences differ from the journal. Ownership ended; no routing writes or guessed undo.", false);
     }
 
@@ -424,6 +453,7 @@ public final class RoutingEngine {
                 && !session.recoveryBlocked && Objects.equals(selected, session.selection);
         Device retained = session != null && (!STOPPED.equals(session.phase) || stoppedTarget) ? session.bottom : null;
         Integer requested = "stop".equals(currentAction) || (session != null && session.pending()) ? null : selectedMicrophoneId;
+        stage = Stage.ENGINE_OBSERVE;
         Observation observation = backend.observe(selected, retained, requested);
         // A new explicit valid selection after Stop wins; a stale ID after reconnect keeps the
         // previously verified canonical microphone rather than guessing a different input.
@@ -438,7 +468,7 @@ public final class RoutingEngine {
         return observation;
     }
 
-    private void requireWritable(Observation current, boolean attached) throws InventoryTransition {
+    private void requireWritable(Observation current, boolean attached) throws Exception {
         if (current.authorized && current.idle && (current.inventorySettling || (current.safeInventory
                 && attached && (!current.attached || !Objects.equals(session.attachmentKey, current.attachmentKey))))) {
             throw new InventoryTransition();
@@ -446,7 +476,7 @@ public final class RoutingEngine {
         if (!current.authorized || !current.idle || !current.safeInventory
                 || !session.bottom.equals(current.bottom) || (attached && (!current.attached
                 || !Objects.equals(session.attachmentKey, current.attachmentKey)))) {
-            throw new IllegalStateException("Routing guards changed");
+            throw new RoutingFailure(Stage.GUARDS, new IllegalStateException());
         }
     }
 
@@ -461,6 +491,8 @@ public final class RoutingEngine {
     }
     private boolean pending() { return session != null && (session.pending() || session.owned() > 0); }
     private Result result(boolean ok, String state, String message, boolean pending) {
+        if (firstRestoreFailure != null && !message.contains(firstRestoreFailure)) message = "Restoration write failure: " + firstRestoreFailure + ". " + message;
+        if (firstApplyFailure != null) message = "Initial apply failure: " + firstApplyFailure + ". " + message;
         return new Result(ok, state, message, lastIdle, pending, writeAttempts, session == null ? 0 : session.owned());
     }
 }

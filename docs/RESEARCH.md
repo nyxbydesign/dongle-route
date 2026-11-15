@@ -34,6 +34,8 @@ For an otherwise ambiguous empty read, the helper requires a complete, bounded n
 
 The app saves the original preferences before mutation, journals intent, verifies readback, defers changes during calls/recordings and restores only owned values. This does not make two source operations atomic. First-use pairing, hidden interface compatibility, actual target-app routing, disconnect restoration and DAC reapplication still need phone acceptance. [Automation and recovery](AUTOMATION.md).
 
+A subsequent 0.8 report showed the local connection remaining available while routing start failed with a generic helper error. Stop events alone did not identify whether an owned preference had been restored. The exact failing platform or journal operation remains unverified. Version 0.9 adds a read-only compatibility action and fixed diagnostic stages, safe cause categories and numeric OS error codes; it does not establish that the reported routing-start failure is resolved.
+
 The vendored ADB TLS context accepts self-signed server certificates, matching AOSP's client protocol; it is not general HTTPS trust or server-certificate pinning. Pairing binds the code to TLS-exported material through SPAKE2. The daemon then authenticates the registered client key. Connections are restricted to explicit localhost ports and use an app-private identity. [ADB pairing](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/pairing_connection/pairing_connection.cpp), [ADB connection TLS](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/transport.cpp).
 
 ## Historical USB forced capture claim (removed in 0.5)

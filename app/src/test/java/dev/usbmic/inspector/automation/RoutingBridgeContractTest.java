@@ -30,6 +30,8 @@ public final class RoutingBridgeContractTest {
         assertTrue(RoutingBridge.command(RoutingBridge.Action.TICK, 1, 2, -1).endsWith(" tick-retained 1 2"));
         assertTrue(RoutingBridge.command(RoutingBridge.Action.STOP, -1, -1, -1).endsWith(" stop"));
         assertTrue(RoutingBridge.command(RoutingBridge.Action.STATUS, -1, -1, -1).endsWith(" status 0 0"));
+        assertTrue(RoutingBridge.command(RoutingBridge.Action.CHECK, -1, -1, -1).endsWith(" check"));
+        assertTrue(RoutingBridge.command(RoutingBridge.Action.CHECK, 1, 2, 100).endsWith(" check 1 2 100"));
         try { RoutingBridge.command(RoutingBridge.Action.TICK, -1, -1, -1); fail(); } catch (IOException expected) { }
         try { RoutingBridge.command(RoutingBridge.Action.DEFAULTS, 1, 2, -1); fail(); } catch (IOException expected) { }
     }

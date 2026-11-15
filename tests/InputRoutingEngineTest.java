@@ -1,4 +1,5 @@
 import dev.usbmic.inspector.shell.RoutingEngine;
+import dev.usbmic.inspector.shell.RoutingFailure;
 import dev.usbmic.inspector.shell.MicrophoneSelector;
 import dev.usbmic.inspector.shell.UsbInventoryPolicy;
 import java.util.ArrayList;
@@ -16,6 +17,7 @@ public final class InputRoutingEngineTest {
     private static int assertions, scenarios;
 
     public static void main(String[] args) {
+        diagnosticStagesAndReadOnlyCheck();
         retainedMonitorAndEarlyStop();
         usbReconnectTransitions();
         attachDetachAndIdempotence();
@@ -29,6 +31,43 @@ public final class InputRoutingEngineTest {
         journalFailures();
         microphoneSelection();
         System.out.println("PASS: " + scenarios + " routing scenarios, " + assertions + " assertions; fake backend only, no Android or device writes");
+    }
+
+    private static void diagnosticStagesAndReadOnlyCheck() {
+        Rig r = new Rig(); r.backend.queryUnknown = true;
+        RoutingEngine.Result failed = r.run("tick");
+        check(failed.message.contains("ENGINE_OBSERVE (Exception)") && !failed.message.contains("Unknown native getter"), "initial observe category is safe and stage-specific");
+        r = new Rig(); r.store.failSave = 1;
+        failed = r.run("tick");
+        check(failed.message.contains("JOURNAL_SAVE (Exception)") && r.backend.writeCalls == 0,
+                "initial durable journal failure is distinguished before mutation");
+        r = new Rig(); r.backend.failAfterWrite = 1; r.backend.unknownAfterWrite = 1;
+        failed = r.run("tick");
+        check(failed.message.contains("Initial apply failure: GUARDED_WRITE (Exception)")
+                && failed.message.contains("ENGINE_OBSERVE (Exception)") && failed.restorePending,
+                "secondary restore query failure preserves the first apply failure and intent");
+        r = new Rig(); r.run("tick"); r.backend.failBeforeWrite = 3; r.backend.unknownAfterFailedWrite = 3;
+        failed = r.run("stop");
+        check(failed.message.contains("Restoration write failure: GUARDED_WRITE (Exception)")
+                && failed.message.contains("ENGINE_OBSERVE (Exception)") && failed.restorePending,
+                "restore write failure survives a secondary failed reconciliation query");
+        scenarios++;
+        for (String phase : Arrays.asList(RoutingEngine.ACTIVE, RoutingEngine.APPLYING, RoutingEngine.RESTORING,
+                RoutingEngine.CONFLICT, RoutingEngine.STOPPED)) {
+            r = new Rig(); r.run("tick"); r.store.saved.phase = phase;
+            int writes = r.backend.writeCalls, saves = r.store.saves;
+            r.run("check");
+            check(r.backend.writeCalls == writes && r.store.saves == saves && r.store.saved.phase.equals(phase),
+                    "read-only check never changes policy or journal in phase " + phase);
+        }
+        r = new Rig(); final Rig fresh = r; final int[] factories = {0};
+        try {
+            RoutingEngine.Result checkResult = RoutingEngine.execute("check", DAC, 10, r.store,
+                    () -> { factories[0]++; return fresh.backend; });
+            check(checkResult.ok && factories[0] == 1 && r.store.saves == 0 && r.backend.writeCalls == 0,
+                    "fresh read-only compatibility check forces backend without creating ownership");
+        } catch (Exception failure) { throw new AssertionError(failure); }
+        scenarios++;
     }
 
     private static void retainedMonitorAndEarlyStop() {
@@ -56,14 +95,14 @@ public final class InputRoutingEngineTest {
                     "no-ownership status does not require hidden audio APIs");
             r.run("tick");
             try { RoutingEngine.execute("stop", null, null, r.store, unavailable); throw new AssertionError("active must query"); }
-            catch (ClassNotFoundException expected) { check(factories[0] == 1 && r.store.saved.owned() == 2,
+            catch (RoutingFailure expected) { check(RoutingFailure.describe(expected, RoutingFailure.Stage.COMMAND).contains("ClassNotFoundException") && factories[0] == 1 && r.store.saved.owned() == 2,
                     "active ownership retains journal when backend loading fails"); }
             r.run("stop");
             check(RoutingEngine.execute("stop", null, null, r.store, unavailable).ok && factories[0] == 1,
                     "fully restored STOPPED journal needs no backend");
             r.store.saved.steps[0] = RoutingEngine.APPLY_INTENT;
             try { RoutingEngine.execute("stop", null, null, r.store, unavailable); throw new AssertionError("intent must query"); }
-            catch (ClassNotFoundException expected) { check(factories[0] == 2, "STOPPED with unresolved intent cannot bypass audio backend"); }
+            catch (RoutingFailure expected) { check(factories[0] == 2, "STOPPED with unresolved intent cannot bypass audio backend"); }
             RoutingEngine.Store unreadable = new RoutingEngine.Store() {
                 public RoutingEngine.Session load() throws Exception { throw new Exception("corrupt or unreadable"); }
                 public void save(RoutingEngine.Session session) { throw new AssertionError("must not mutate"); }
@@ -515,7 +554,7 @@ public final class InputRoutingEngineTest {
         boolean attached = true, safe = true, idle = true, authorized = true, queryUnknown, settling;
         String key = "stable-pair";
         int writeCalls, failBeforeWrite, failAfterWrite, crashBeforeWrite, crashAfterWrite;
-        int busyBeforeWrite, externalBeforeWrite, unknownAfterWrite, settleBeforeWrite;
+        int busyBeforeWrite, externalBeforeWrite, unknownAfterWrite, settleBeforeWrite, unknownAfterFailedWrite;
         final List<RoutingEngine.Write> actualWrites = new ArrayList<>();
         FakeBackend(MemoryStore store) { this.store = store; }
         @Override public RoutingEngine.Observation observe(RoutingEngine.Selection selected, RoutingEngine.Device retained, Integer microphoneId) throws Exception {
@@ -545,7 +584,10 @@ public final class InputRoutingEngineTest {
                 throw new Exception("Fresh expected-value or idle guard refused");
             }
             if (writeCalls == crashBeforeWrite) throw new ProcessDeath();
-            if (writeCalls == failBeforeWrite) throw new Exception("Failure before mutation");
+            if (writeCalls == failBeforeWrite) {
+                if (writeCalls == unknownAfterFailedWrite) queryUnknown = true;
+                throw new Exception("Failure before mutation");
+            }
             preferences[index] = request.desired;
             actualWrites.add(request);
             if (writeCalls == unknownAfterWrite) queryUnknown = true;

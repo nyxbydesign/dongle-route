@@ -38,15 +38,12 @@ public final class NativeCaptureDumpTest {
         try { refused(binder(fd -> { release.await(2, TimeUnit.SECONDS); })); }
         finally { release.countDown(); }
     }
-    @Test public void loaderFailureKeepsStableStageAndRootCategory() throws Exception {
-        Class<?> helper = Class.forName("dev.usbmic.inspector.shell.InputRoutingHelper");
-        Class<?> unavailable = Class.forName(helper.getName() + "$BackendUnavailable");
-        Constructor<?> constructor = unavailable.getDeclaredConstructor(String.class, Exception.class); constructor.setAccessible(true);
-        Object failure = constructor.newInstance("AudioSystem capture role query", new ClassNotFoundException("private detail"));
-        java.lang.reflect.Field stage = unavailable.getDeclaredField("stage"); stage.setAccessible(true);
-        assertEquals("AudioSystem capture role query", stage.get(failure));
-        Method rootCause = helper.getDeclaredMethod("rootCause", Throwable.class); rootCause.setAccessible(true);
-        assertEquals(ClassNotFoundException.class, rootCause.invoke(null, failure).getClass());
+    @Test public void loaderFailureKeepsStableStageAndRootCategory() {
+        dev.usbmic.inspector.shell.RoutingFailure failure = new dev.usbmic.inspector.shell.RoutingFailure(
+                dev.usbmic.inspector.shell.RoutingFailure.Stage.BACKEND_NATIVE_QUERY,
+                new java.lang.reflect.InvocationTargetException(new ClassNotFoundException("private detail")));
+        assertEquals("BACKEND_NATIVE_QUERY (ClassNotFoundException)",
+                dev.usbmic.inspector.shell.RoutingFailure.describe(failure, dev.usbmic.inspector.shell.RoutingFailure.Stage.COMMAND));
     }
     private interface Dump { void write(FileDescriptor fd) throws Exception; }
     private static IBinder binder(Dump dump) {
