@@ -17,7 +17,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".automation.AutomationActivity" android:exported="false" />
         <service android:name=".automation.RoutingService" android:foregroundServiceType="specialUse" android:exported="false" android:stopWithTask="false">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains the user's explicitly connected local Wireless ADB session independently of optional microphone routing, verifies connection health and restores owned input preferences; does not record audio." />

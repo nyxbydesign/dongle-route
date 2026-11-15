@@ -55,7 +55,7 @@ public final class UiScreenshotTest {
         View decor = activity.getWindow().getDecorView();
         assertNotNull(text(decor, "Connect"));
         assertNull(text(decor, "Settings")); assertNull(text(decor, "Devices"));
-        assertNotNull(text(decor, "LOCAL CONTROL / OFFLINE"));
+        assertNotNull(text(decor, "OFFLINE"));
         ScrollView scroll = (ScrollView) get(activity, "scroll");
         assertTrue("Normal layout fits the phone", scroll.getChildAt(0).getHeight() <= scroll.getHeight());
         assertFalse(AutomationSession.get(activity).isConnected()); assertFalse(RoutingService.running);
@@ -99,7 +99,7 @@ public final class UiScreenshotTest {
         assertNotNull(text(sheet, "Connection port")); assertNull(text(sheet, "Pairing code"));
         assertEquals("45678", ((EditText) get(activity, "connectionPort")).getText().toString());
         assertFalse("Identity files do not prove connectivity", AutomationSession.get(activity).isConnected());
-        assertNotNull(text(activity.getWindow().getDecorView(), "LOCAL CONTROL / OFFLINE"));
+        assertNotNull(text(activity.getWindow().getDecorView(), "OFFLINE"));
     }
 
     @Test public void sampleSelectionDoesNotClaimAnAppliedRoute() throws Exception {
@@ -110,7 +110,7 @@ public final class UiScreenshotTest {
         invoke(activity, "updateState"); layout(activity, 412, 892);
         assertNotNull(text(activity.getWindow().getDecorView(), "USB-C audio dongle"));
         assertNotNull(text(activity.getWindow().getDecorView(), "Phone microphone"));
-        assertNull(text(activity.getWindow().getDecorView(), "Phone mic preference set"));
+        assertNull(text(activity.getWindow().getDecorView(), "Phone mic selected"));
         assertNotNull(text(activity.getWindow().getDecorView(), "Connect"));
         assertFalse(RoutingService.running); assertFalse(AutomationSession.get(activity).isConnected());
         capture(activity, null, "home-selected-unpaired", 412, 892);
@@ -180,6 +180,7 @@ public final class UiScreenshotTest {
         RoutingProtocol.Result failure = new RoutingProtocol.Result(false, "blocked", "JOURNAL_TEMP_SYNC (SyncFailedException)", false, true);
         session.recordRoutingResult(failure);
         session.recordRoutingResult(new RoutingProtocol.Result(true, "idle", "No app-owned routing to restore.", false, false));
+        RoutingService.status = session.lastRoutingResult.message + " Local control remains connected.";
         assertSame(failure, session.lastRoutingFailure); assertNotSame(failure, session.lastRoutingResult);
         assertFalse(session.needsRestoration());
         invoke(activity, "showRoutingDetails");
@@ -188,6 +189,8 @@ public final class UiScreenshotTest {
         android.content.pm.PackageInfo info = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
         assertTrue(report.startsWith("DongleRoute " + info.versionName + " (" + info.getLongVersionCode() + ")"));
         assertTrue(report.contains("Latest routing failure (kept after Stop)")); assertTrue(report.contains(failure.message));
+        assertFalse(report.contains("Last policy check"));
+        assertEquals(report.indexOf(session.lastRoutingResult.message), report.lastIndexOf(session.lastRoutingResult.message));
         assertTrue(report.contains("No app-owned routing to restore.")); dialog.dismiss();
     }
     private void set(AutomationActivity a, String name, Object value) throws Exception {

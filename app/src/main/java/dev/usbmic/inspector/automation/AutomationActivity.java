@@ -49,7 +49,7 @@ import static dev.usbmic.inspector.automation.RouteUi.*;
 public class AutomationActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private AutomationSession session;
-    private LinearLayout root, body;
+    private LinearLayout body;
     private ScrollView scroll;
     private View dongleRow, microphoneRow;
     private TextView dongleTitle, micTitle, statusTitle, statusHint, primary, feedbackView, connectionLabel;
@@ -92,7 +92,7 @@ public class AutomationActivity extends Activity {
             rememberedDongle = state.getString("dongleLabel", ""); rememberedMic = state.getString("micLabel", "");
             savedPairPort = state.getString("pairPort", ""); savedConnectionPort = state.getString("connectPort", savedConnectionPort);
         }
-        root = column(this); root.setBackgroundColor(BG);
+        LinearLayout root = column(this); root.setBackgroundColor(BG);
         scroll = new ScrollView(this); scroll.setFillViewport(true);
         body = column(this); body.setPadding(d(26), d(16), d(26), d(24)); scroll.addView(body);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
@@ -126,7 +126,7 @@ public class AutomationActivity extends Activity {
         header.addView(overflow, new LinearLayout.LayoutParams(d(48), d(48)));
         overflow.setOnClickListener(this::showOptions); body.addView(header);
         gap(body, 44);
-        connectionLabel = mono(body, "LOCAL CONTROL / OFFLINE");
+        connectionLabel = mono(body, "OFFLINE");
         gap(body, 28);
         rule(body); dongleRow = routeRow("USB OUT", "headphones", true);
         rule(body); microphoneRow = routeRow("PHONE IN", "mic", false); rule(body);
@@ -168,28 +168,28 @@ public class AutomationActivity extends Activity {
         dongleTitle.setText(dac != null ? rememberedDongle : selectionLocked() && !rememberedDongle.isEmpty() ? rememberedDongle : "Connect USB headphones");
         micTitle.setText(mic != null ? rememberedMic : selectionLocked() && !rememberedMic.isEmpty() ? rememberedMic : "Choose microphone");
         enabled(dongleRow, !busy && !selectionLocked()); enabled(microphoneRow, !busy && !selectionLocked());
-        connectionLabel.setText(RoutingService.connecting ? "LOCAL CONTROL / CONNECTING" : connected ? "LOCAL CONTROL / CONNECTED" : "LOCAL CONTROL / OFFLINE");
+        connectionLabel.setText(RoutingService.connecting ? "CONNECTING" : connected ? "CONNECTED" : "OFFLINE");
         connectionLabel.setTextColor(connected ? MINT : MUTED);
         String title, hint;
         if (!connected && debt) { title = "Reconnect to restore"; hint = "The previous microphone preference may still be set."; }
-        else if (!connected) { title = "Local connection required"; hint = "Pair once, then connect this phone."; }
+        else if (!connected) { title = "Connect to begin"; hint = "Pair once, then connect this phone."; }
         else if (active) {
             String state = RoutingService.presentationState;
-            if ("active".equals(state)) { title = "Phone mic preference set"; hint = "Check voice and headphone sound in your calling app."; }
+            if ("active".equals(state)) { title = "Phone mic selected"; hint = "Check mic and headphones in your calling app."; }
             else if ("busy".equals(state)) { title = "Waiting for recording to end"; hint = "No routing changes during calls or recordings."; }
             else if ("restoring".equals(state)) { title = "Restoring previous preferences"; hint = "Keep the connection open."; }
-            else if ("waiting".equals(state)) { title = RoutingService.restoring ? "Waiting to restore" : "Waiting for USB audio"; hint = "Android is updating the device list. Local control stays connected."; }
-            else if ("idle".equals(state) || "restored".equals(state)) { title = "Waiting for USB headphones"; hint = "The selected route resumes when the dongle reconnects."; }
+            else if ("waiting".equals(state)) { title = RoutingService.restoring ? "Waiting to restore" : "Waiting for USB audio"; hint = "Waiting for Android to update USB audio."; }
+            else if ("idle".equals(state) || "restored".equals(state)) { title = "Waiting for USB headphones"; hint = "Resumes when your dongle reconnects."; }
             else { title = "Checking routing support"; hint = "Requesting the selected phone input."; }
         } else if (debt) {
             RoutingProtocol.Result last = session.lastRoutingResult;
-            title = last != null && !last.ok ? "Recovery needs attention" : "Restore the previous route";
-            hint = last != null && !last.ok ? last.message : "Finish recovery before choosing a new route.";
+            title = last != null && !last.ok ? "Recovery needs attention" : "Restore previous route";
+            hint = last != null && !last.ok ? last.message : "Restore before choosing another route.";
         }
-        else if ("blocked".equals(RoutingService.presentationState) || "conflict".equals(RoutingService.presentationState)) { title = "Routing unavailable"; hint = "Open More for connection and routing details."; }
+        else if ("blocked".equals(RoutingService.presentationState) || "conflict".equals(RoutingService.presentationState)) { title = "Routing unavailable"; hint = "Open Details in the menu."; }
         else if (dac == null) { title = "No USB audio selected"; hint = dongles.isEmpty() ? "Plug in your headphone dongle." : "Tap USB OUT to choose a supported device."; }
         else if (mic == null) { title = "Choose a phone input"; hint = "Tap PHONE IN to select a built-in microphone."; }
-        else { title = "Routing is off"; hint = "Use the phone microphone with these USB headphones."; }
+        else { title = "Routing is off"; hint = "Use your phone mic with USB headphones."; }
         statusTitle.setText(title); statusHint.setText(hint);
         primary.setText(!connected ? debt ? "Reconnect to restore" : "Connect" : active || debt ? "Stop & restore" : "Use phone mic");
         enabled(primary, !busy || active);
@@ -202,10 +202,10 @@ public class AutomationActivity extends Activity {
     private boolean selectionLocked() { return RoutingService.running || session.needsRestoration(); }
     private void primaryAction() {
         if (!session.isConnected()) { openConnection(); return; }
-        if (RoutingService.running || session.needsRestoration()) { startAction(RoutingService.STOP, false); return; }
+        if (RoutingService.running || session.needsRestoration()) { startAction(RoutingService.STOP); return; }
         if (selectedDongle() == null) { chooseDongle(); return; }
         if (selectedMicrophone() == null) { chooseMicrophone(); return; }
-        startAction(RoutingService.ENABLE, true);
+        startAction(RoutingService.ENABLE);
     }
     private void showOptions(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
@@ -221,7 +221,7 @@ public class AutomationActivity extends Activity {
             switch (item.getItemId()) {
                 case 1: openConnection(); break;
                 case 9: requestDisconnect(); break;
-                case 2: startAction(RoutingService.STOP, false); break;
+                case 2: startAction(RoutingService.STOP); break;
                 case 3: confirmDefaults(); break;
                 case 4: showRoutingDetails(); break;
                 case 7: showLicenses(); break;
@@ -255,8 +255,8 @@ public class AutomationActivity extends Activity {
         sheetBody.removeAllViews(); sheetBody.setFocusableInTouchMode(true); sheetBody.requestFocus();
         label(sheetBody, pairingMode ? "Pair this phone" : "Connect this phone", 22, TEXT, true); gap(sheetBody, 10);
         label(sheetBody, pairingMode
-                ? "Open Wireless debugging \u2192 Pair with code. Keep that dialog beside this app in split-screen."
-                : "Enter the port on the main Wireless debugging screen, not the pairing port.", 13, MUTED, false);
+                ? "Wireless debugging \u2192 Pair with code. Keep both apps open in split-screen."
+                : "Use the main Wireless debugging port, not the pairing port.", 13, MUTED, false);
         gap(sheetBody, 8);
         TextView settings = text(this, "Open Android settings \u2197", 13, MINT, true);
         settings.setMinHeight(d(48)); settings.setGravity(Gravity.CENTER_VERTICAL); buttonSemantics(settings);
@@ -383,12 +383,12 @@ public class AutomationActivity extends Activity {
         if (!manager.areNotificationsEnabled() || (channel != null && channel.getImportance() == NotificationManager.IMPORTANCE_NONE)) { message("Enable routing notifications in Android Settings first."); return false; }
         return true;
     }
-    private void startAction(String action, boolean needsSelection) {
+    private void startAction(String action) {
         if (!session.isConnected()) { openConnection(); return; }
         if (session.isBusy() && !RoutingService.running) { message("Wait for the current action to finish."); return; }
         AutomationSession.DacChoice d = selectedDongle(); AutomationSession.MicChoice m = selectedMicrophone();
         if (!RoutingService.STOP.equals(action) && m == null) { chooseMicrophone(); return; }
-        if (needsSelection && !RoutingService.running && d == null && (!inventoryKnown || !dongles.isEmpty() || RoutingService.ENABLE.equals(action))) { chooseDongle(); return; }
+        if (!RoutingService.STOP.equals(action) && !RoutingService.running && d == null && (!inventoryKnown || !dongles.isEmpty() || RoutingService.ENABLE.equals(action))) { chooseDongle(); return; }
         if (!RoutingService.running && !notificationsReady()) return;
         Intent request = new Intent(this, RoutingService.class).setAction(action); if (d != null) request.putExtra("vendor", d.vendor).putExtra("product", d.product); if (m != null) request.putExtra("microphone", m.id);
         try { if (RoutingService.running) startService(request); else startForegroundService(request); feedback = ""; updateState(); }
@@ -402,7 +402,7 @@ public class AutomationActivity extends Activity {
     }
     private void confirmDefaults() {
         new AlertDialog.Builder(this).setTitle("Use Android microphone defaults?").setMessage("This stops routing and clears matching phone-microphone preferences, including manual ones. Restore previous preferences instead keeps your earlier choices.")
-                .setNegativeButton("Cancel", null).setPositiveButton("Use defaults", (dialog, which) -> startAction(RoutingService.DEFAULTS, true)).show();
+                .setNegativeButton("Cancel", null).setPositiveButton("Use defaults", (dialog, which) -> startAction(RoutingService.DEFAULTS)).show();
     }
     private void forget() {
         if (RoutingService.running || session.isBusy() || session.needsRestoration()) { message("Restore previous preferences before forgetting pairing."); return; }
@@ -415,7 +415,10 @@ public class AutomationActivity extends Activity {
     private void showRoutingDetails() {
         String info = installedVersion() + "\nLocal control: " + (session.isConnected() ? "connected" : "offline")
                 + "\nBackground session: " + RoutingService.sessionRunning + "\nRouting requested: " + RoutingService.routingRequested + "\n\n" + RoutingService.status;
-        RoutingProtocol.Result last = session.lastRoutingResult; if (last != null) info += "\n\nLast policy check\n" + last.describe();
+        RoutingProtocol.Result last = session.lastRoutingResult;
+        boolean repeatsPolicy = last != null && (RoutingService.status.startsWith(last.describe())
+                || (!last.message.isEmpty() && RoutingService.status.startsWith(last.message)));
+        if (last != null && !repeatsPolicy) info += "\n\nLast policy check\n" + last.describe();
         RoutingProtocol.Result failure = session.lastRoutingFailure;
         if (failure != null && failure != last) info += "\n\nLatest routing failure (kept after Stop)\n" + failure.describe();
         info += "\n\nRestoration may be needed: " + (session.needsRestoration() ? "yes" : "no");

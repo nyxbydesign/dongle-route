@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
@@ -14,10 +13,10 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Small native design system shared by the route, connection and device screens. */
+/** Native controls for the route screen and connection sheet. */
 final class RouteUi {
-    static final int BG = 0xff111414, PANEL = 0xff1b201e, INSET = 0xff151a18, BORDER = 0xff333c37;
-    static final int TEXT = 0xffedf1e9, MUTED = 0xff9aa89f, VIOLET = 0xff9bd8b3, MINT = 0xffa4dbb4, AMBER = 0xffdfc191;
+    static final int BG = 0xff111414, PANEL = 0xff1b201e, BORDER = 0xff333c37;
+    static final int TEXT = 0xffedf1e9, MUTED = 0xff9aa89f, MINT = 0xffa4dbb4, AMBER = 0xffdfc191;
     private RouteUi() { }
     static int dp(Context c, float value) { return Math.round(c.getResources().getDisplayMetrics().density * value); }
     static GradientDrawable surface(Context c, int color, int stroke, int radius) {
@@ -54,7 +53,6 @@ final class RouteUi {
 
     static final class Icon extends View {
         private final String kind; private final int tint; private final Paint p = new Paint(3); private final Path path = new Path();
-        public Icon(Context c) { this(c, "route", VIOLET); }
         Icon(Context c, String kind, int tint) { super(c); this.kind = kind; this.tint = tint; setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas); canvas.save(); float unit = Math.min(getWidth(), getHeight()) / 24f;
@@ -67,21 +65,8 @@ final class RouteUi {
             } else if ("headphones".equals(kind)) {
                 path.moveTo(4, 15); path.lineTo(4, 11); path.cubicTo(4, 1, 20, 1, 20, 11); path.lineTo(20, 15); canvas.drawPath(path, p);
                 canvas.drawRoundRect(2, 12, 7, 21, 2, 2, p); canvas.drawRoundRect(17, 12, 22, 21, 2, 2, p);
-            } else if ("link".equals(kind)) {
-                canvas.rotate(-35, 12, 12); canvas.drawRoundRect(2, 8, 13, 16, 4, 4, p); canvas.drawRoundRect(11, 8, 22, 16, 4, 4, p); canvas.drawLine(8, 12, 16, 12, p);
-            } else if ("devices".equals(kind)) {
-                canvas.drawRoundRect(3, 5, 21, 19, 4, 4, p); canvas.drawLine(8, 9, 16, 9, p); canvas.drawLine(8, 14, 12, 14, p);
-            } else if ("settings".equals(kind)) {
-                canvas.drawLine(4, 6, 20, 6, p); canvas.drawLine(4, 12, 20, 12, p); canvas.drawLine(4, 18, 20, 18, p);
-                p.setStyle(Paint.Style.FILL); canvas.drawCircle(9, 6, 2.6f, p); canvas.drawCircle(16, 12, 2.6f, p); canvas.drawCircle(8, 18, 2.6f, p);
-            } else if ("back".equals(kind)) {
-                path.moveTo(14, 5); path.lineTo(7, 12); path.lineTo(14, 19); canvas.drawPath(path, p);
             } else if ("arrow".equals(kind)) {
                 path.moveTo(9, 5); path.lineTo(16, 12); path.lineTo(9, 19); canvas.drawPath(path, p);
-            } else if ("check".equals(kind)) {
-                path.moveTo(5, 12); path.lineTo(10, 17); path.lineTo(20, 6); canvas.drawPath(path, p);
-            } else {
-                path.moveTo(3, 14); path.lineTo(7, 14); path.lineTo(10, 5); path.lineTo(14, 20); path.lineTo(17, 10); path.lineTo(21, 10); canvas.drawPath(path, p);
             }
             canvas.restore();
         }

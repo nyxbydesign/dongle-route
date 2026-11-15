@@ -11,7 +11,7 @@ import java.util.Locale;
 
 /** Only this fixed helper protocol is exposed to the app's routing controls. */
 final class RoutingBridge {
-    enum Action { STATUS, CHECK, TICK, STOP, DEFAULTS }
+    enum Action { CHECK, TICK, STOP, DEFAULTS }
     private static final String DIRECTORY = "/data/local/tmp/dev.usbmic.inspector";
     private static final String HELPER = DIRECTORY + "/routing-helper.jar";
     private final byte[] asset;

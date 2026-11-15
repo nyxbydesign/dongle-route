@@ -6,8 +6,6 @@ import dev.usbmic.inspector.shell.BoundedBinderDump;
 import dev.usbmic.inspector.shell.CaptureRoleMap;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
