@@ -31,9 +31,13 @@ final class AutomationSession {
     private volatile LocalAdbClient client;
     private RoutingBridge bridge;
     private volatile boolean restorationUnresolved = true;
+    volatile RoutingProtocol.Result lastRoutingResult;
     volatile String connectionStatus = "Disconnected. Pair and connect using this app's own identity.";
 
-    private AutomationSession(Context context) { this.context = context.getApplicationContext(); }
+    private AutomationSession(Context context) {
+        this.context = context.getApplicationContext();
+        restorationUnresolved = preferences().getBoolean("may_need_restore", false);
+    }
     static synchronized AutomationSession get(Context context) {
         if (instance == null) instance = new AutomationSession(context);
         return instance;
@@ -105,6 +109,7 @@ final class AutomationSession {
             if (bridge == null) bridge = new RoutingBridge(context);
             if (action == RoutingBridge.Action.TICK || action == RoutingBridge.Action.DEFAULTS) rememberRestoration(true);
             RoutingProtocol.Result result = bridge.execute(client(), action, vendor, product, microphoneId);
+            lastRoutingResult = result;
             if (result.restorePending || result.state.equals("active")) rememberRestoration(true);
             else if (result.ok && (result.state.equals("restored") || result.state.equals("idle"))) rememberRestoration(false);
             return result;

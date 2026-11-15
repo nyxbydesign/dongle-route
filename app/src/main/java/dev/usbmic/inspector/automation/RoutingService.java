@@ -17,7 +17,7 @@ import android.media.AudioManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import dev.usbmic.inspector.CaptureClaimService;
+import dev.usbmic.inspector.MainActivity;
 
 /** User-started policy reconciliation. It never captures audio or claims USB interfaces. */
 public final class RoutingService extends Service {
@@ -27,6 +27,7 @@ public final class RoutingService extends Service {
     private static final int NOTIFICATION_ID = 40;
     private static final String CHANNEL = "automatic_input_routing";
     public static volatile boolean running;
+    static volatile String presentationState = "off";
     static volatile int configuredMicId = -1, configuredVendor = -1, configuredProduct = -1;
     static volatile String status = "Automation is off. Connect to check whether saved routing preferences need restoration.";
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -61,7 +62,6 @@ public final class RoutingService extends Service {
         }
         if (ENABLE.equals(action)) {
             if (running) return START_NOT_STICKY;
-            if (CaptureClaimService.isExperimentActive()) { end("Release the separate USB capture experiment before enabling automation."); return START_NOT_STICKY; }
             vendor = intent.getIntExtra("vendor", -1);
             product = intent.getIntExtra("product", -1);
             microphoneId = intent.getIntExtra("microphone", -1);
@@ -87,6 +87,7 @@ public final class RoutingService extends Service {
         }
         completed = false;
         running = true;
+        presentationState = mode == RoutingBridge.Action.TICK ? "checking" : "restoring";
         NotificationManager notifications = getSystemService(NotificationManager.class);
         notifications.createNotificationChannel(new NotificationChannel(CHANNEL, "Automatic microphone routing", NotificationManager.IMPORTANCE_LOW));
         status = mode == RoutingBridge.Action.TICK ? "Checking the selected DAC and routing capabilities…"
@@ -122,8 +123,9 @@ public final class RoutingService extends Service {
         session.routing(requested, vendor, product, microphoneId, (result, error) -> {
             operationRunning = false;
             if (!running) return;
-            if (error != null) { end(error + " Restoration is not guaranteed; reconnect and check status."); return; }
+            if (error != null) { presentationState = "blocked"; end(error + " Restoration is not guaranteed; reconnect and check status."); return; }
             if (mode != requested) { main.post(reconcile); return; }
+            presentationState = result.state;
             if (!result.ok || result.state.equals("blocked") || result.state.equals("conflict")) {
                 end(result.describe() + "\nAutomatic writes stopped. Check status and use Stop & restore when the blocker is resolved.");
                 return;
@@ -147,9 +149,9 @@ public final class RoutingService extends Service {
     private Notification notification(String text) {
         PendingIntent stop = PendingIntent.getService(this, 40,
                 new Intent(this, RoutingService.class).setAction(STOP), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent open = PendingIntent.getActivity(this, 41, new Intent(this, AutomationActivity.class),
+        PendingIntent open = PendingIntent.getActivity(this, 41, new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_warning)
+        return new Notification.Builder(this, CHANNEL).setSmallIcon(dev.usbmic.inspector.R.drawable.ic_route_notification)
                 .setContentTitle(mode == RoutingBridge.Action.TICK ? "DongleRoute: automatic microphone routing" : "DongleRoute: restoration pending")
                 .setContentText(text.length() > 180 ? text.substring(0, 180) : text)
                 .setStyle(new Notification.BigTextStyle().bigText(text))
@@ -176,6 +178,7 @@ public final class RoutingService extends Service {
     @Override public void onDestroy() {
         if (!completed) {
             running = false;
+            presentationState = "blocked";
             status = "The routing service ended. Saved preferences may still be active. Reconnect, check status, then Stop & restore.";
         }
         main.removeCallbacksAndMessages(null);

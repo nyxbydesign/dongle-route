@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -12,7 +10,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
-    <application android:label="DongleRoute" android:icon="@drawable/ic_usb_mic" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
+    <application android:label="DongleRoute" android:icon="@drawable/ic_usb_mic" android:theme="@style/Theme.DongleRoute" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -24,10 +22,5 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains the user's explicitly enabled microphone input policy for a selected USB DAC, including restoring saved preferences when disconnected; does not record audio." />
         </service>
-        <!-- USB is an alternative connectedDevice prerequisite: UsbManager.requestPermission()
-             is called by the activity; the service rechecks hasPermission() before promotion.
-             Lint 8.7.3 checks only the manifest permission alternatives.
-             https://developer.android.com/about/versions/14/changes/fgs-types-required#connected-device -->
-        <service android:name=".CaptureClaimService" android:foregroundServiceType="connectedDevice" android:exported="false" android:stopWithTask="true" tools:ignore="ForegroundServicePermission" />
     </application>
 </manifest>

@@ -2,6 +2,25 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.5 validation (2026-11-15)
+
+Version 0.5 replaces the diagnostic activity with a focused native route dashboard, Devices, Settings and a separate local-connection setup. It removes the recorder/playback probes, USB capture-claim service, descriptor claim policy and experimental history UI. The app no longer requests RECORD_AUDIO or connected-device foreground-service permission. The input-policy helper and local ADB protocol remain unchanged.
+
+- Passed app and instrumentation APK assembly and lint. An initial passing build reported three additional cleanup warnings (two obsolete strings and a programmatic icon constructor); those were corrected, and the affected assembly/lint passed with zero errors and the four previously reviewed ADB-TLS/permission-removal warnings.
+- Passed four Robolectric 4.17 tests using SDK 35 and native graphics. They render the actual application Views: unpaired home, explicit three-step connection, sample inventory without a connection, and a narrow 320 dp screen with 1.5 font scale and reachable scrolling controls. Selecting a sample device does not imply an applied route.
+- Added and passed one focused recovery-control test against unchanged production code: stored restoration debt locks route selection and prevents forgetting the identity or restoring/defaulting while disconnected. The original four passing results were retained and reused. Eight local PNGs were inspected; the public README uses clearly labelled sample-inventory previews.
+- The final APK has exactly INTERNET, POST_NOTIFICATIONS, FOREGROUND_SERVICE and FOREGROUND_SERVICE_SPECIAL_USE. Package dev.usbmic.inspector, version code 5 / 0.5-diagnostic, minimum API 34, target/compile API 35, ARM64 and x86_64. Size: 15,235,712 bytes. Existing Android Debug signer and v2 signature verified unchanged.
+- Verified all four shipped native libraries' ELF LOAD and uncompressed ZIP 16 KB alignment, embedded helper/notices, and removal of legacy diagnostic classes. The instrumentation APK's exact bytes are unchanged; prior runner/metadata/signature qualification is reused. It was not installed or executed.
+- Reused the exact unchanged helper's 242 routing/selection assertions, 39 protocol assertions and 48 transport assertions from 0.4. No USB capture-policy tests apply after removal of that feature.
+
+Final APK SHA-256:
+
+```text
+a9bad7f3f15cb4baeff1c64c79a9921ee94980ca0a00c30d705ab258323d9477
+```
+
+The JVM graphics tests use Android framework shadows and synthetic inventory. They are layout/control evidence, not physical-device pairing or routing acceptance. No phone connection, shell-policy mutation, recording, playback, USB claim or new emulator attempt was performed for 0.5. First-use pairing, continued wired sound, target-app capture and reconnect/restoration still require [phone acceptance](PHONE-TEST.md). Logs, first results and the final source/artifact receipt are retained privately in ignored evidence/0.5/.
+
 ## Version 0.4 validation (2026-11-15)
 
 - Passed app and instrumentation APK assembly and 39 protocol parser assertions against real org.json. The routing helper is compiled and dexed from source into the app asset.
@@ -91,4 +110,4 @@ The initial report contained descriptor inspection only. A later user-supplied v
 
 Post-claim USB playback/audibility and driver restoration remain unverified. Subsequent shell permission/help output and a user-reported successful manual input preference test motivated version 0.4. Its automated behavior and Discord/telephone-call routing still require independent acceptance; repeated USB claims are not the next step.
 
-Use [automation acceptance](AUTOMATION.md) for version 0.4. The older [USB phone test](PHONE-TEST.md) remains a separate diagnostic procedure. If a claim fails to preserve playback or default input remains USB/silent, stop and replug rather than expanding claims.
+Use the current [phone acceptance](PHONE-TEST.md) and [automation recovery guide](AUTOMATION.md). The legacy USB claim is removed in 0.5; earlier release evidence is retained here as history.

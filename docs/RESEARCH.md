@@ -2,6 +2,8 @@
 
 Initial source investigation: 2026-11-11; descriptor compatibility update: 2026-11-14. Primary sources below describe Android/AOSP and upstream Linux, not a verified Pixel policy implementation. A subsequently supplied USB descriptor report is used for offline regression checks; it does not establish physical audio routing behavior.
 
+Version 0.5 removes the earlier audio probes and USB capture-claim experiment from the application. Its focused UI uses the input-preference helper described below. The USB section is retained as historical investigation, not an available feature or recommended next test.
+
 ## Public APIs do not establish a global mic-only override
 
 `AudioRecord.setPreferredDevice` applies to that AudioRecord. A preference is not guaranteed to be the actual route. Query `getRoutedDevice` while recording, inspect read errors and capture silencing, and distinguish this app's result from another application's input. [AudioRouting reference](https://developer.android.com/reference/android/media/AudioRouting), [AudioRecord reference](https://developer.android.com/reference/android/media/AudioRecord).
@@ -30,7 +32,7 @@ The app saves the original preferences before mutation, journals intent, verifie
 
 The vendored ADB TLS context accepts self-signed server certificates, matching AOSP's client protocol; it is not general HTTPS trust or server-certificate pinning. Pairing binds the code to TLS-exported material through SPAKE2. The daemon then authenticates the registered client key. Connections are restricted to explicit localhost ports and use an app-private identity. [ADB pairing](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/pairing_connection/pairing_connection.cpp), [ADB connection TLS](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/transport.cpp).
 
-## USB forced capture claim
+## Historical USB forced capture claim (removed in 0.5)
 
 `claimInterface(intf, true)` requests exclusive access and may disconnect the kernel driver. `releaseInterface` releases the claim; the API does not promise reconstruction of the original ALSA/framework routing state. [UsbDeviceConnection reference](https://developer.android.com/reference/android/hardware/usb/UsbDeviceConnection).
 

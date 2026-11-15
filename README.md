@@ -33,7 +33,7 @@ Some USB-C audio dongles expose a microphone input even when you only want their
   <tr>
     <td width="33%" valign="top">
       <h3>01 · Detect</h3>
-      <p>See connected USB devices, audio interfaces, endpoints, and Android input/output devices. No dongle brand allowlist.</p>
+      <p>See connected USB devices and their audio capability, alongside the phone's available microphones. No dongle brand allowlist.</p>
     </td>
     <td width="33%" valign="top">
       <h3>02 · Choose</h3>
@@ -49,18 +49,30 @@ Some USB-C audio dongles expose a microphone input even when you only want their
 > [!IMPORTANT]
 > This is a **diagnostic release**. The manual Android 17 shell preference worked in the user's test. Integrated pairing, reconnect handling and restoration still need phone acceptance. Detection works across device models; a global routing override cannot be guaranteed on every Android phone or in every calling app.
 
+## Inside DongleRoute
+
+<p align="center">
+  <img src="docs/assets/screenshots/route.png" alt="Route dashboard with separate USB output and phone microphone cards" width="30%" />
+  &nbsp;
+  <img src="docs/assets/screenshots/devices.png" alt="Dongle and built-in microphone selection" width="30%" />
+  &nbsp;
+  <img src="docs/assets/screenshots/connection.png" alt="Step-by-step local connection setup" width="30%" />
+</p>
+
+<p align="center"><sub>Actual Android views rendered locally with sample inventory. These previews show an unpaired app; they are not physical-phone routing evidence.</sub></p>
+
 ## Get started
 
 **[Download the APK from Releases →](https://github.com/nyxbydesign/dongle-route/releases)**
 
 No Shizuku, separate LADB app, or root is needed. You authorize this app's own local ADB pairing.
 
-1. **Open Automatic microphone routing.** Enable Wireless debugging yourself in Android Developer options.
-2. **Pair in split-screen.** In Settings, open *Pair device with pairing code*. Keep that dialog visible alongside DongleRoute. Enter its pairing port and code, then tap **Pair this app**.
+1. **Open connection setup.** Enable Wireless debugging yourself in Android Developer options.
+2. **Pair in split-screen.** In Settings, open *Pair device with pairing code*. Keep that dialog visible alongside DongleRoute. Enter its pairing port and code, then tap **Pair this phone**.
 3. **Connect using the other port.** Use the connection port on the main Wireless debugging screen. It differs from the temporary pairing port.
-4. **Select and enable.** Choose your DAC and built-in microphone, check routing status, then tap **Enable automatic routing on reconnect**. Allow notifications for the visible Stop control.
+4. **Choose your route.** Select your DAC and phone mic on the dashboard, then start routing. Allow notifications for the visible Stop control.
 
-Verify a short voice test in the app you actually use, and confirm that wired headphone playback stays audible. The app does not start microphone recordings or USB claims automatically.
+Verify a short voice test in the app you actually use, and confirm that wired headphone playback stays audible. DongleRoute does not record audio or claim USB interfaces.
 
 **[Full setup and a minimal phone test →](docs/AUTOMATION.md)**
 
@@ -68,9 +80,9 @@ Verify a short voice test in the app you actually use, and confirm that wired he
 
 | Control | What it does |
 | --- | --- |
-| **Enable automatic routing on reconnect** | Prefers the selected phone mic for MIC and VOICE_COMMUNICATION while the selected DAC is attached and this service remains connected. Output policy stays unchanged. |
-| **Stop & restore saved preferences** | Returns to the preferences present before automation, including any manual phone-mic preference you had already set. |
-| **Restore Android microphone defaults** | Explicitly clears matching phone-microphone preferences so Android can choose automatically. Unrelated preferences are preserved. |
+| **Start routing** | Prefers the selected phone mic for MIC and VOICE_COMMUNICATION while the selected DAC is attached and this service remains connected. Output policy stays unchanged. |
+| **Stop & restore** | Returns to the preferences present before automation, including any manual phone-mic preference you had already set. |
+| **Use Android defaults** | Explicitly clears matching phone-microphone preferences so Android can choose automatically. Unrelated preferences are preserved. |
 
 Changes wait during calls or recordings. If local ADB disconnects or Android kills the app, preferences can remain active: reconnect and restore. Reopen and connect using the current port after reboot or a Wireless debugging restart.
 
@@ -91,9 +103,9 @@ Ambiguous device layouts and unsupported phone policies stop with a diagnostic. 
 - The ADB client connects only to `127.0.0.1` and generates its own app-private pairing identity, excluded from backup.
 - Pairing codes are transient. Another app's credentials are never read.
 - The app does not enable debugging, grant privileged permissions, or change Android security settings.
-- No microphone samples are saved. Reports are shared only by your deliberate action; review them for personal hardware details before posting.
+- The app does not request microphone-recording permission. Any troubleshooting details you choose to share should be reviewed for personal hardware information first.
 
-The older **USB capture claim** remains a separate manual experiment. It did not establish default microphone fallback in the supplied phone test. Automation does not use it. Release may require unplug/replug to restore the driver; stop repeating it if the default route remains USB.
+Version 0.5 replaces the original diagnostic interface with a focused native dashboard, connection setup and recovery settings. The obsolete USB-detach experiment and audio probes have been removed.
 
 <details>
 <summary><strong>Build from source</strong></summary>
@@ -102,12 +114,14 @@ Use JDK 21 and Android SDK platform/build-tools 35. The Gradle 8.11.1 wrapper ve
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=2 assembleDebug assembleDebugAndroidTest lintDebug routingProtocolTests
+.\gradlew.bat --no-daemon --max-workers=2 :app:testDebugUnitTest --tests dev.usbmic.inspector.automation.UiScreenshotTest
 .\tests\run-routing-engine-tests.ps1
 .\localadb\run-tests.ps1
-.\tests\run-policy-tests.ps1
 ```
 
 The APK is `app/build/outputs/apk/debug/app-debug.apk`, signed with a local Android debug key. Building does not install, pair, or change a phone. The routing helper is built from `routing-helper/` and packaged as an APK asset.
+
+The UI harness renders the actual Android views with Robolectric SDK 35 and native graphics. Its images are local rendering evidence, separate from physical-phone routing acceptance.
 
 See [contributing](CONTRIBUTING.md), [third-party notices and relinking](docs/THIRD-PARTY.md), and [transport patches](localadb/UPSTREAM-PATCHES.md).
 
@@ -116,7 +130,7 @@ See [contributing](CONTRIBUTING.md), [third-party notices and relinking](docs/TH
 <details>
 <summary><strong>Research and verification</strong></summary>
 
-[Research](docs/RESEARCH.md) documents the public API boundary, Android's shell-side capture preferences, and the separate USB experiment. [Validation](docs/VALIDATION.md) records actual builds, offline tests and remaining runtime blockers.
+[Research](docs/RESEARCH.md) documents the public API boundary, Android's shell-side capture preferences, and the historical USB investigation. [Validation](docs/VALIDATION.md) records actual builds, offline tests and remaining runtime blockers.
 
 Preference readback is policy evidence. A preferred device being accepted is not proof that Discord or telephony actually used it.
 
