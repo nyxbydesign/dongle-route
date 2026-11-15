@@ -7,8 +7,8 @@ android {
         applicationId 'dev.usbmic.inspector'
         minSdk 34
         targetSdk 35
-        versionCode 5
-        versionName '0.5-diagnostic'
+        versionCode 6
+        versionName '0.6-diagnostic'
         testInstrumentationRunner 'dev.usbmic.inspector.LocalAdbSmokeInstrumentation'
         ndk { abiFilters 'arm64-v8a', 'x86_64' }
     }
@@ -34,7 +34,7 @@ tasks.withType(Test).configureEach {
             '--add-opens=java.base/java.security=ALL-UNNAMED', '--add-opens=java.base/java.text=ALL-UNNAMED',
             '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED', '--add-opens=java.desktop/java.awt.font=ALL-UNNAMED',
             '--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED'
-    systemProperty 'dongleroute.screenshots', rootProject.file('evidence/0.5/screenshots').absolutePath
+    systemProperty 'dongleroute.screenshots', rootProject.file('evidence/0.6/screenshots').absolutePath
 }
 
 def helperSources = rootProject.fileTree('routing-helper/src/main/java') { include '**/*.java' }

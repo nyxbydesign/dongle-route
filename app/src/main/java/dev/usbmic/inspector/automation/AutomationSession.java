@@ -69,6 +69,15 @@ final class AutomationSession {
     boolean isBusy() { return working.get(); }
     boolean needsRestoration() { return restorationUnresolved; }
     boolean isConnected() { LocalAdbClient current = client; return current != null && current.isConnected(); }
+    // Presence selects the shorter form; it does not establish pairing or connectivity.
+    boolean hasLocalIdentity() {
+        java.io.File folder = new java.io.File(context.getNoBackupFilesDir(), "local-adb");
+        return new java.io.File(folder, "identity.pk8").isFile() && new java.io.File(folder, "identity.crt").isFile();
+    }
+    String lastConnectionPort() {
+        int port = preferences().getInt("last_connection_port", 0);
+        return port > 0 && port <= 65535 ? Integer.toString(port) : "";
+    }
 
     private LocalAdbClient client() throws IOException {
         if (client == null) client = new LocalAdbClient(context);
@@ -97,6 +106,7 @@ final class AutomationSession {
             if (!client().isConnected()) throw new IOException("Not connected");
             if (bridge != null) bridge.resetUpload();
             connectionStatus = "Connected to this phone's Wireless debugging service.";
+            preferences().edit().putInt("last_connection_port", port).apply();
             return true;
         }, (result, error) -> {
             if (error != null) connectionStatus = "Connection failed. Check the current connection port; it can change after restarting Wireless debugging.";
@@ -152,6 +162,7 @@ final class AutomationSession {
             client = null;
             if (bridge != null) bridge.resetUpload();
             connectionStatus = "This app's pairing identity was removed. Pair again before reconnecting.";
+            preferences().edit().remove("last_connection_port").apply();
             return true;
         }, callback, "Pairing was kept. Connect and use Stop & restore, then verify status before forgetting this app's identity.");
     }

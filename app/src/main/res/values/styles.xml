@@ -1,12 +1,12 @@
 <resources>
     <style name="Theme.DongleRoute" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#C0A3FF</item>
+        <item name="android:colorAccent">#A4DBB4</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:statusBarColor">#101019</item>
-        <item name="android:navigationBarColor">#101019</item>
-        <item name="android:windowBackground">#101019</item>
+        <item name="android:statusBarColor">#111414</item>
+        <item name="android:navigationBarColor">#111414</item>
+        <item name="android:windowBackground">#111414</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowSoftInputMode">adjustResize</item>
     </style>

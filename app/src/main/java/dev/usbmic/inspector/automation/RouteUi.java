@@ -16,8 +16,8 @@ import android.widget.TextView;
 
 /** Small native design system shared by the route, connection and device screens. */
 final class RouteUi {
-    static final int BG = 0xff101019, PANEL = 0xff1b1b2a, INSET = 0xff14141f, BORDER = 0xff343145;
-    static final int TEXT = 0xfff5f1ff, MUTED = 0xffaaa4bb, VIOLET = 0xffc0a3ff, MINT = 0xff8de0ce, AMBER = 0xffe5c590;
+    static final int BG = 0xff111414, PANEL = 0xff1b201e, INSET = 0xff151a18, BORDER = 0xff333c37;
+    static final int TEXT = 0xffedf1e9, MUTED = 0xff9aa89f, VIOLET = 0xff9bd8b3, MINT = 0xffa4dbb4, AMBER = 0xffdfc191;
     private RouteUi() { }
     static int dp(Context c, float value) { return Math.round(c.getResources().getDisplayMetrics().density * value); }
     static GradientDrawable surface(Context c, int color, int stroke, int radius) {
@@ -27,7 +27,7 @@ final class RouteUi {
     }
     static void clickable(View view, int color, int stroke, int radius) {
         Context c = view.getContext();
-        view.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22c0a3ff), surface(c, color, stroke, radius), null));
+        view.setBackground(new RippleDrawable(ColorStateList.valueOf(0x229bd8b3), surface(c, color, stroke, radius), null));
         view.setClickable(true); view.setFocusable(true);
     }
     static TextView text(Context c, String value, int size, int color, boolean medium) {
@@ -38,7 +38,7 @@ final class RouteUi {
     static TextView button(Context c, String label, boolean primary, View.OnClickListener action) {
         TextView t = text(c, label, 16, primary ? BG : TEXT, true); t.setGravity(Gravity.CENTER);
         t.setMinHeight(dp(c, 54)); t.setPadding(dp(c, 16), dp(c, 14), dp(c, 16), dp(c, 14));
-        clickable(t, primary ? VIOLET : PANEL, primary ? 0 : BORDER, 17); t.setOnClickListener(action);
+        clickable(t, primary ? MINT : PANEL, primary ? 0 : BORDER, 7); t.setOnClickListener(action);
         buttonSemantics(t); return t;
     }
     static LinearLayout column(Context c) { LinearLayout l = new LinearLayout(c); l.setOrientation(LinearLayout.VERTICAL); return l; }

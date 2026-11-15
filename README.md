@@ -49,14 +49,14 @@ Some USB-C audio dongles expose a microphone input even when you only want their
 > [!IMPORTANT]
 > This is a **diagnostic release**. The manual Android 17 shell preference worked in the user's test. Integrated pairing, reconnect handling and restoration still need phone acceptance. Detection works across device models; a global routing override cannot be guaranteed on every Android phone or in every calling app.
 
-## Inside DongleRoute
+<a id="inside-dongleroute"></a>
+
+## The app
 
 <p align="center">
-  <img src="docs/assets/screenshots/route.png" alt="Route dashboard with separate USB output and phone microphone cards" width="30%" />
+  <img src="docs/assets/screenshots/route.png" alt="Single-screen headphone and phone microphone controls" width="38%" />
   &nbsp;
-  <img src="docs/assets/screenshots/devices.png" alt="Dongle and built-in microphone selection" width="30%" />
-  &nbsp;
-  <img src="docs/assets/screenshots/connection.png" alt="Step-by-step local connection setup" width="30%" />
+  <img src="docs/assets/screenshots/connection.png" alt="Compact local connection sheet over the same screen" width="38%" />
 </p>
 
 <p align="center"><sub>Actual Android views rendered locally with sample inventory. These previews show an unpaired app; they are not physical-phone routing evidence.</sub></p>
@@ -67,10 +67,10 @@ Some USB-C audio dongles expose a microphone input even when you only want their
 
 No Shizuku, separate LADB app, or root is needed. You authorize this app's own local ADB pairing.
 
-1. **Open connection setup.** Enable Wireless debugging yourself in Android Developer options.
-2. **Pair in split-screen.** In Settings, open *Pair device with pairing code*. Keep that dialog visible alongside DongleRoute. Enter its pairing port and code, then tap **Pair this phone**.
-3. **Connect using the other port.** Use the connection port on the main Wireless debugging screen. It differs from the temporary pairing port.
-4. **Choose your route.** Select your DAC and phone mic on the dashboard, then start routing. Allow notifications for the visible Stop control.
+1. **Plug in your dongle.** The app selects an unambiguous USB audio device and phone mic. Tap a device row only if you want to change the choice.
+2. **Connect when needed.** Setup opens over the same screen. For first pairing, enable Android Wireless debugging, open *Pair device with pairing code*, and keep its dialog visible alongside DongleRoute in split-screen. Enter the pairing port and code.
+3. **Use the connection port.** After pairing, the same sheet asks for the port on the main Wireless debugging screen. It differs from the temporary pairing port. Returning users can go straight to this step.
+4. **Use the phone mic.** Back on the main screen, start routing. Allow notifications for the visible Stop control. Connecting alone does not start routing.
 
 Verify a short voice test in the app you actually use, and confirm that wired headphone playback stays audible. DongleRoute does not record audio or claim USB interfaces.
 
@@ -80,7 +80,7 @@ Verify a short voice test in the app you actually use, and confirm that wired he
 
 | Control | What it does |
 | --- | --- |
-| **Start routing** | Prefers the selected phone mic for MIC and VOICE_COMMUNICATION while the selected DAC is attached and this service remains connected. Output policy stays unchanged. |
+| **Use phone mic** | Prefers the selected phone mic for MIC and VOICE_COMMUNICATION while the selected DAC is attached and this service remains connected. Output policy stays unchanged. |
 | **Stop & restore** | Returns to the preferences present before automation, including any manual phone-mic preference you had already set. |
 | **Use Android defaults** | Explicitly clears matching phone-microphone preferences so Android can choose automatically. Unrelated preferences are preserved. |
 
@@ -105,7 +105,7 @@ Ambiguous device layouts and unsupported phone policies stop with a diagnostic. 
 - The app does not enable debugging, grant privileged permissions, or change Android security settings.
 - The app does not request microphone-recording permission. Any troubleshooting details you choose to share should be reviewed for personal hardware information first.
 
-Version 0.5 replaces the original diagnostic interface with a focused native dashboard, connection setup and recovery settings. The obsolete USB-detach experiment and audio probes have been removed.
+Version 0.6 has one flat control screen, inline device choices and compact connection setup. Recovery and technical details live in the overflow menu. There are no Devices or Settings pages. The obsolete USB-detach experiment and audio probes remain removed.
 
 <details>
 <summary><strong>Build from source</strong></summary>

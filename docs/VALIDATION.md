@@ -2,6 +2,23 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.6 validation (2026-11-15)
+
+The app now has one flat control screen, inline USB/microphone choices, a compact Pair/Connect sheet and an overflow menu. Device and Settings pages, nested cards and the redundant Start confirmation are removed. Unique supported device choices are selected automatically. A saved app-owned identity only selects the shorter connection form; it does not certify pairing. The last successful connection port is remembered, and connecting alone never starts routing.
+
+- App and instrumentation APK assembly and lint tasks passed. Lint reports zero errors and the same four reviewed warnings. The first combined invocation ended on one UI test's asynchronous-dialog observer; its other five UI tests passed. After preserving that result, only the failed observer was repaired to wait for the main looper and rerun. All six flow cases are qualified against unchanged production code.
+- Rendered and inspected seven actual Android-View PNGs with Robolectric SDK 35/native graphics. Coverage includes the single screen, synthetic selection without connection/routing claims, compact pairing/connection, returning-user setup, narrow/large text and recovery locks. These are local UI renders, not phone screenshots.
+- Final APK: package dev.usbmic.inspector, version code 6 / 0.6-diagnostic, minimum API 34, target/compile API 35, ARM64/x86_64; 15,218,940 bytes. Existing debug signer retained. The same four intended permissions remain.
+- Verified native ELF/ZIP 16 KB alignment, nine notice assets and absence of legacy diagnostic classes. The helper JAR container timestamp changed, while its nested executable classes.dex matches 0.5 exactly; previous helper/protocol/transport checks are reused. The unchanged instrumentation APK retains its prior qualification and was not installed or run.
+
+Final APK SHA-256:
+
+```text
+fcbdf304be8eac65500736e1071b24e0c1cd471c8ff7286dbcc1ddfa2e529677
+```
+
+No real connection, pairing, audio-policy mutation, recording, playback, USB claim or new emulator attempt was performed. Physical-phone pairing, target-app capture, wired sound and reconnect/restoration remain acceptance items. Source/artifact binding and preserved test records are in ignored evidence/0.6/.
+
 ## Version 0.5 validation (2026-11-15)
 
 Version 0.5 replaces the diagnostic activity with a focused native route dashboard, Devices, Settings and a separate local-connection setup. It removes the recorder/playback probes, USB capture-claim service, descriptor claim policy and experimental history UI. The app no longer requests RECORD_AUDIO or connected-device foreground-service permission. The input-policy helper and local ADB protocol remain unchanged.
