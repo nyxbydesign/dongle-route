@@ -2,13 +2,30 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.10 validation (2026-11-15)
+
+This minimal update replaces the helper's system-thread bootstrap with an unattached resource context. It addresses the framework USB parcel failure matching the reported `USB_INVENTORY (IllegalArgumentException)`. The one-screen UI, shell UID and permission requirements, physical inventory checks and restoration rules are unchanged.
+
+- Reproduced the exception with the real SDK 35 Bundle/UsbDevice parcel decoder and a remote serial-reader proxy: system-thread classification rejects it, while the same parcel decodes as a client. An initial test-fixture pointer mismatch was corrected and the original failure retained.
+- Passed both new bootstrap tests: creating the resource-only synthetic shell package context leaves system-thread state unpublished and false; an existing system-thread role is refused without changing it. These use framework objects under Robolectric and do not establish physical phone behavior.
+- App and instrumentation APK assembly and lint passed, with zero errors and the same four reviewed warnings. Unchanged 0.9 engine, preference-proof, diagnostic, protocol, app and transport checks are reused. No passing workload was repeated solely for publication.
+- Verified version code 10 / 0.10-diagnostic, unchanged package and signer, the same four permissions, four native libraries with ELF/ZIP 16 KB alignment, nine notices and an embedded helper matching the generated artifact exactly. The production helper has no `systemMain`, system-thread flag writes or current-thread static writes.
+
+APK: 15,245,220 bytes. SHA-256:
+
+```text
+0e2ea94547dab16c50c3dce991e6d006c18cc075958f10def82e2bb44c9d2a14
+```
+
+Evidence is retained in ignored evidence/0.10/. No new phone discovery, installation or policy/audio/USB action was performed; the earlier workstation socket-access blocker remains. The parcel failure has offline reproduction and repair evidence. Actual routing, wired output and reconnect/restoration still need device verification.
+
 ## Version 0.9 validation (2026-11-15)
 
 This is a diagnostic update for a reported routing-start failure. It fixes a stale report-version label, preserves the latest helper failure after Stop, and identifies failing operations through fixed stages and safe error categories. Check compatibility now exercises the backend even without active ownership and makes no journal or policy writes. The exact phone-side failure is still unverified; this release does not claim to resolve it.
 
 - Passed 50 routing scenarios / 437 assertions, 30 preference-proof checks and four safe-diagnostic checks. Read-only checks cover absent, active, interrupted and conflict ownership without saves or writes. Failure tests retain an apply/write cause when a later restoration/query operation also fails and exclude raw error text from diagnostics.
 - Passed 30 unique app cases: thirteen service lifecycle cases, eight Android-view cases, one worker-order case, two framework/bridge cases, three shadow-pipe/diagnostic cases, and three adapter/journal cases. The latter exercise the actual inventory method using framework objects under Robolectric, the journal JSON codec and file-metadata predicates. One microphone fixture initially used an output-oriented type conversion; it was repaired to assert native input type, role, ID and address, then only that failed method was rerun. These checks do not establish physical-device inventory, kernel durability or SELinux behavior.
-- App and instrumentation assembly passed. Lint passed with zero errors and the four existing reviewed warnings; protocol checks passed 42 assertions. Unchanged transport checks are reused. The initial automatic build-approval review timed out before process launch; its permitted single retry ran successfully.
+- App and instrumentation assembly passed. Lint passed with zero errors and the four existing reviewed warnings; protocol checks passed 42 assertions. Unchanged transport checks are reused.
 - Verified version code 9 / 0.9-diagnostic, signer continuity, the same four permissions, native ELF/ZIP 16 KB alignment, nine notices, the new diagnostic helper, absence of obsolete native-policy dependencies and removal of the hardcoded 0.7 report label. The embedded helper exactly matches the generated helper. The APK stayed unchanged through the test-fixture repair.
 
 APK: 15,244,916 bytes. SHA-256:

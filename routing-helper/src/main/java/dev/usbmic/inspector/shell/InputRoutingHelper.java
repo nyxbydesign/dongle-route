@@ -7,7 +7,6 @@ import android.hardware.usb.UsbManager;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
 import android.system.ErrnoException;
@@ -137,10 +136,7 @@ public final class InputRoutingHelper {
         AndroidBackend() throws Exception {
             Stage stage = Stage.BACKEND_CONTEXT;
             try {
-                if (Looper.myLooper() == null) Looper.prepareMainLooper();
-                Class<?> threadClass = Class.forName("android.app.ActivityThread");
-                Object thread = threadClass.getMethod("systemMain").invoke(null);
-                Context system = (Context) threadClass.getMethod("getSystemContext").invoke(thread);
+                Context system = ShellContextBootstrap.systemContext();
                 context = system.createPackageContext("com.android.shell", 0);
                 if (context.getApplicationInfo().uid != 2000 || !"com.android.shell".equals(context.getPackageName())) {
                     throw new SecurityException("Shell package context unavailable");
