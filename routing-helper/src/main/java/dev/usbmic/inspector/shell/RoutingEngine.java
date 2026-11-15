@@ -95,6 +95,10 @@ public final class RoutingEngine {
     public static final class InventoryTransition extends Exception {
         public InventoryTransition() { super("Selected USB inventory is settling"); }
     }
+    public static final class QueryUnavailable extends Exception {
+        public final String stage;
+        public QueryUnavailable(String stage, Exception cause) { super(cause); this.stage = stage; }
+    }
 
     public static final class Write {
         public final int preset;
@@ -118,6 +122,17 @@ public final class RoutingEngine {
     public interface Store {
         Session load() throws Exception;
         void save(Session session) throws Exception;
+    }
+    public interface BackendFactory { Backend create() throws Exception; }
+
+    /** The caller holds the private journal lock and has verified its shell identity. */
+    public static Result execute(String action, Selection selected, Integer microphoneId,
+                                 Store store, BackendFactory factory) throws Exception {
+        if (("stop".equals(action) || "status".equals(action)) && noOwnership(store.load())) {
+            return new Result(true, "idle", "No app-owned routing to restore. No audio policy changes made.",
+                    false, false, 0, 0);
+        }
+        return new RoutingEngine(factory.create(), store).run(action, selected, microphoneId);
     }
 
     public static final class Session {
@@ -171,10 +186,18 @@ public final class RoutingEngine {
         writeAttempts = 0; lastIdle = false;
         currentAction = action; selectedMicrophoneId = microphoneId;
         try {
-            if (!"status".equals(action) && !"tick".equals(action) && !"stop".equals(action) && !"defaults".equals(action)) {
+            if (!"status".equals(action) && !"tick".equals(action) && !"tick-retained".equals(action) && !"stop".equals(action) && !"defaults".equals(action)) {
                 return result(false, "blocked", "Unknown fixed action.", false);
             }
             session = store.load();
+            if ("tick-retained".equals(action) && (microphoneId != null || selected == null || session == null
+                    || session.defaults || session.recoveryBlocked || !selected.equals(session.selection)
+                    || !validMicrophone(session.bottom) || !Preference.of(session.bottom).equals(session.desired))) {
+                return result(false, "blocked", "A verified matching microphone session is required before monitoring can resume.", pending());
+            }
+            if ("stop".equals(action) && noOwnership(session)) {
+                return result(true, "idle", "No app-owned routing to restore.", false);
+            }
             Selection effective = selected != null ? selected : session == null ? null : session.selection;
             Observation initial = observe(effective);
             if ("status".equals(action)) return status(initial);
@@ -232,8 +255,14 @@ public final class RoutingEngine {
             store.save(session); // Both originals are durable before the first possible mutation.
             return apply();
         } catch (Exception failure) {
-            return result(false, "blocked", "Query, journal or guarded routing operation unavailable. No blind retry; inspect status or Stop.", pending());
+            return result(false, "blocked", failure instanceof QueryUnavailable
+                    ? ((QueryUnavailable) failure).stage + " unavailable or inconsistent. No routing retry; inspect details or Stop."
+                    : "Query, journal or guarded routing operation unavailable. No blind retry; inspect status or Stop.", pending());
         }
+    }
+
+    public static boolean noOwnership(Session session) {
+        return session == null || (STOPPED.equals(session.phase) && !session.pending() && session.owned() == 0);
     }
 
     private Result status(Observation observation) {

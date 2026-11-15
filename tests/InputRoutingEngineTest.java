@@ -16,6 +16,7 @@ public final class InputRoutingEngineTest {
     private static int assertions, scenarios;
 
     public static void main(String[] args) {
+        retainedMonitorAndEarlyStop();
         usbReconnectTransitions();
         attachDetachAndIdempotence();
         busyAndDeferredStop();
@@ -28,6 +29,49 @@ public final class InputRoutingEngineTest {
         journalFailures();
         microphoneSelection();
         System.out.println("PASS: " + scenarios + " routing scenarios, " + assertions + " assertions; fake backend only, no Android or device writes");
+    }
+
+    private static void retainedMonitorAndEarlyStop() {
+        Rig r = new Rig();
+        check(!r.run("tick-retained").ok && r.backend.writeCalls == 0, "retained monitor cannot guess without a journal");
+        r.run("tick");
+        check(r.run("tick-retained").ok && r.backend.writeCalls == 2, "retained monitor uses established canonical target");
+        check(!r.engine().run("tick-retained", new RoutingEngine.Selection(1, 2), null).ok,
+                "retained monitor rejects a different dongle");
+        check(!r.engine().run("tick-retained", DAC, 10).ok, "retained monitor rejects a numeric mic override");
+        r.backend.attached = false;
+        check(r.run("tick-retained").state.equals("restored"), "retained tick restores after detach");
+        r.backend.attached = true; r.backend.key = "replugged";
+        check(r.run("tick-retained").state.equals("active"), "retained tick reuses canonical target after completed detach restoration");
+        r.store.saved.defaults = true;
+        check(!r.run("tick-retained").ok, "defaults journal cannot authorize a retained monitor");
+        scenarios++;
+
+        r = new Rig(); final int[] factories = {0};
+        RoutingEngine.BackendFactory unavailable = () -> { factories[0]++; throw new ClassNotFoundException("private detail"); };
+        try {
+            check(RoutingEngine.execute("stop", null, null, r.store, unavailable).ok && factories[0] == 0,
+                    "Stop with absent verified journal does not construct audio backend");
+            check(RoutingEngine.execute("status", DAC, null, r.store, unavailable).ok && factories[0] == 0,
+                    "no-ownership status does not require hidden audio APIs");
+            r.run("tick");
+            try { RoutingEngine.execute("stop", null, null, r.store, unavailable); throw new AssertionError("active must query"); }
+            catch (ClassNotFoundException expected) { check(factories[0] == 1 && r.store.saved.owned() == 2,
+                    "active ownership retains journal when backend loading fails"); }
+            r.run("stop");
+            check(RoutingEngine.execute("stop", null, null, r.store, unavailable).ok && factories[0] == 1,
+                    "fully restored STOPPED journal needs no backend");
+            r.store.saved.steps[0] = RoutingEngine.APPLY_INTENT;
+            try { RoutingEngine.execute("stop", null, null, r.store, unavailable); throw new AssertionError("intent must query"); }
+            catch (ClassNotFoundException expected) { check(factories[0] == 2, "STOPPED with unresolved intent cannot bypass audio backend"); }
+            RoutingEngine.Store unreadable = new RoutingEngine.Store() {
+                public RoutingEngine.Session load() throws Exception { throw new Exception("corrupt or unreadable"); }
+                public void save(RoutingEngine.Session session) { throw new AssertionError("must not mutate"); }
+            };
+            try { RoutingEngine.execute("stop", null, null, unreadable, unavailable); throw new AssertionError("corrupt must block"); }
+            catch (Exception expected) { check(factories[0] == 2, "corrupt journal blocks before backend, never proves no ownership"); }
+        } catch (Exception failure) { throw new AssertionError(failure); }
+        scenarios++;
     }
 
     private static void usbReconnectTransitions() {

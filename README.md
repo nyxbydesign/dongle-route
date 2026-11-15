@@ -89,6 +89,8 @@ Changes wait during calls, recordings and a known dongle/audio-inventory transit
 
 If local ADB loses authorization, preferences can remain active: pair the same app identity again, reconnect and restore. Reopen and connect using the current port after reboot or a Wireless debugging restart. Routing details includes a deliberate copy action for the app's bounded session history.
 
+If an earlier helper error left recovery locked before any route was saved, Stop & restore can verify that no app-owned route needs restoration and unlock selection. Saved or uncertain ownership remains protected; recovery never deletes it to dismiss an error.
+
 ## Compatibility
 
 | | Current support |
@@ -108,7 +110,7 @@ Ambiguous device layouts and unsupported phone policies stop with a diagnostic. 
 - The app does not enable debugging, grant privileged permissions, or change Android security settings.
 - The app does not request microphone-recording permission. Any troubleshooting details you choose to share should be reviewed for personal hardware information first.
 
-Version 0.6 has one flat control screen, inline device choices and compact connection setup. Recovery and technical details live in the overflow menu. There are no Devices or Settings pages. The obsolete USB-detach experiment and audio probes remain removed.
+The app has one flat control screen, inline device choices and compact connection setup. Recovery and technical details live in the overflow menu. There are no Devices or Settings pages. The obsolete USB-detach experiment and audio probes remain removed.
 
 <details>
 <summary><strong>Build from source</strong></summary>

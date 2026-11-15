@@ -181,7 +181,11 @@ public class AutomationActivity extends Activity {
             else if ("waiting".equals(state)) { title = RoutingService.restoring ? "Waiting to restore" : "Waiting for USB audio"; hint = "Android is updating the device list. Local control stays connected."; }
             else if ("idle".equals(state) || "restored".equals(state)) { title = "Waiting for USB headphones"; hint = "The selected route resumes when the dongle reconnects."; }
             else { title = "Checking routing support"; hint = "Requesting the selected phone input."; }
-        } else if (debt) { title = "Restore the previous route"; hint = "Finish recovery before choosing a new route."; }
+        } else if (debt) {
+            RoutingProtocol.Result last = session.lastRoutingResult;
+            title = last != null && !last.ok ? "Recovery needs attention" : "Restore the previous route";
+            hint = last != null && !last.ok ? last.message : "Finish recovery before choosing a new route.";
+        }
         else if ("blocked".equals(RoutingService.presentationState) || "conflict".equals(RoutingService.presentationState)) { title = "Routing unavailable"; hint = "Open More for connection and routing details."; }
         else if (dac == null) { title = "No USB audio selected"; hint = dongles.isEmpty() ? "Plug in your headphone dongle." : "Tap USB OUT to choose a supported device."; }
         else if (mic == null) { title = "Choose a phone input"; hint = "Tap PHONE IN to select a built-in microphone."; }

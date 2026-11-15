@@ -87,6 +87,9 @@ public final class SessionLifecycleTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5)); assertEquals("restored", RoutingService.presentationState); assertTrue(RoutingService.routingRequested);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5)); assertEquals("active", RoutingService.presentationState);
         assertEquals(Arrays.asList(100, 100, -1, -1), session.microphoneArguments);
+        assertTrue(session.commands.get(0).endsWith(" tick 1 2 100"));
+        assertTrue(session.commands.get(2).endsWith(" tick-retained 1 2"));
+        assertTrue(session.commands.get(3).endsWith(" tick-retained 1 2"));
     }
     @Test public void explicitDisconnectRestoresBeforeClosingAndDoesNotRestart() {
         connect(); route();
@@ -161,6 +164,7 @@ public final class SessionLifecycleTest {
         final List<RoutingProtocol.Result> restoreResults = new ArrayList<>();
         final List<Integer> microphoneArguments = new ArrayList<>();
         final List<String> actions = new ArrayList<>();
+        final List<String> commands = new ArrayList<>();
         FakeSession(Context context) { super(context); }
         @Override boolean isBusy() { return false; }
         @Override boolean isConnected() { return connected; }
@@ -176,6 +180,8 @@ public final class SessionLifecycleTest {
         @Override void heartbeat(Callback<Boolean> callback) { heartbeats++; if (failHeartbeat) connected = false; callback.complete(!failHeartbeat, failHeartbeat ? "Lost" : null); }
         @Override void routing(RoutingBridge.Action action, int vendor, int product, int microphone, Callback<RoutingProtocol.Result> callback) {
             routingCalls++;
+            try { commands.add(RoutingBridge.command(action, vendor, product, microphone)); }
+            catch (java.io.IOException invalid) { callback.complete(null, "Fixed bridge command refused"); return; }
             RoutingProtocol.Result value;
             if (action == RoutingBridge.Action.STOP || action == RoutingBridge.Action.DEFAULTS) { actions.add("restore"); value = restoreResults.isEmpty() ? result("restored", false) : restoreResults.remove(0); }
             else { microphoneArguments.add(microphone); value = results.isEmpty() ? result("active", true) : results.remove(0); }

@@ -56,8 +56,15 @@ final class RoutingBridge {
             uploaded = false;
             throw new IOException("Routing helper verification failed. No routing command was run.");
         }
-        String command = "CLASSPATH=" + HELPER + " app_process / dev.usbmic.inspector.shell.InputRoutingHelper "
-                + action.name().toLowerCase(Locale.ROOT);
+        String command = command(action, vendor, product, microphoneId);
+        LocalAdbClient.ShellResult response = client.shell(command, 22000, 32768);
+        return RoutingProtocol.parse(response.stdout, response.exitCode);
+    }
+
+    static String command(Action action, int vendor, int product, int microphoneId) throws IOException {
+        String fixedAction = action == Action.TICK && microphoneId <= 0 ? "tick-retained"
+                : action.name().toLowerCase(Locale.ROOT);
+        String command = "CLASSPATH=" + HELPER + " app_process / dev.usbmic.inspector.shell.InputRoutingHelper " + fixedAction;
         if (action != Action.STOP) {
             if (vendor < 0 || vendor > 65535 || product < 0 || product > 65535) {
                 if (action == Action.TICK) throw new IOException("Select exactly one USB audio dongle before enabling automation.");
@@ -65,11 +72,10 @@ final class RoutingBridge {
             }
             command += " " + vendor + " " + product;
             if (microphoneId > 0) command += " " + microphoneId;
-            else if (action == Action.TICK || action == Action.DEFAULTS) {
+            else if (action == Action.DEFAULTS) {
                 throw new IOException("Select an unambiguous built-in microphone first.");
             }
         }
-        LocalAdbClient.ShellResult response = client.shell(command, 22000, 32768);
-        return RoutingProtocol.parse(response.stdout, response.exitCode);
+        return command;
     }
 }

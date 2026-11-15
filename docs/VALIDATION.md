@@ -2,6 +2,23 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.8 validation (2026-11-15)
+
+A phone report showed local ADB connected while the helper failed with ClassNotFoundException and Stop repeatedly left recovery pending. This update removes the generated native-policy Java dependencies, verifies absent or fully stopped ownership before loading the audio adapter, and fixes the bridge rejecting retained-microphone monitoring commands. Saved or uncertain ownership is preserved. The recovery screen now shows the specific helper failure.
+
+- Passed 48 helper scenarios / 399 assertions and 30 synthetic native capture-map/preference-proof checks. Coverage includes retained monitoring without a new port ID, matching-journal requirements, backend-free Stop/status with no ownership, and refusal of active or unreadable state. Generic JNI errors alone never establish an absent preference.
+- Passed SDK 35 framework-signature and fixed-command tests, thirteen service lifecycle cases, one real-session worker-order case, seven Android-view cases, and three Binder-dump/loader cases. The pipe tests use Robolectric and a fake Binder; they do not establish real kernel-pipe behavior or native audio-service compatibility. An early simulated EOF exposed an observer mismatch; the repaired case checks the complete production read-plus-parser boundary and rejects incomplete data. Only that failed method was rerun.
+- Application and instrumentation APK assembly passed. Initial unit-test compilation required a test-only helper JAR dependency; lint and the previously unexecuted tests then ran successfully. Lint retains zero errors and four previously reviewed warnings. Protocol checks passed 42 assertions; unchanged transport checks are reused from earlier releases.
+- Verified version code 8 / 0.8-diagnostic, existing package and development certificate, exactly four permissions, ARM64/x86_64 native ELF and ZIP 16 KB alignment, nine notices and removal of obsolete generated native-policy dependencies. The embedded helper executable matches the generated helper's complete entry inventory; their JAR container timestamps differ after the test-plumbing repair. The qualified APK was retained unchanged. The narrow/large-font recovery screen was visually inspected.
+
+APK: 15,241,424 bytes. SHA-256:
+
+```text
+58e54d546ed3491bcd4ed29201e73bf3fe63c1809c458cbb5a28f84bd6ac2fee
+```
+
+Original environment, compilation and observer failures, passing results and artifact receipts are retained in ignored evidence/0.8/. No phone discovery, installation, pairing, audio-policy write, recording, playback, USB claim or emulator retry was performed. Android 17 source verification and SDK 35 framework tests do not replace phone acceptance: upgrade, connect, Stop & restore, then deliberately verify routing, dongle reconnect and actual voice/headphone behavior on an idle phone.
+
 ## Version 0.7 validation (2026-11-15)
 
 This update addresses user-reported dongle reconnect failure, loss of the idle ADB session after a Recents swipe, and inability to re-pair after Android removes authorization. Connect now has its own foreground owner independently of routing. Stop restores routing while retaining the connection; explicit Disconnect restores before closing when possible. Observable transport loss parks without an authorization retry loop, and same-key re-pairing remains available with pending restoration. Known USB/audio-list settling waits without writes; a new enumeration generation restores the baseline before reapplying.

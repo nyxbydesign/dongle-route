@@ -9,6 +9,7 @@ import android.media.AudioManager;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Process;
+import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -20,7 +21,6 @@ import java.io.FileDescriptor;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -40,6 +40,7 @@ public final class InputRoutingHelper {
     private static final String TEMP = JOURNAL + ".new";
     private static final String LOCK = DIRECTORY + "/route-state.lock";
     private static final int FILE_MODE = 0600;
+    private static final long STARTED = SystemClock.elapsedRealtime();
     private InputRoutingHelper() { }
 
     public static void main(String[] args) {
@@ -55,19 +56,20 @@ public final class InputRoutingHelper {
         int exitCode = 1;
         FileOutputStream lockStream = null;
         FileLock lock = null;
+        String stage = "fixed command validation";
         try {
             String action = args.length > 0 ? args[0] : "";
-            if (!("status".equals(action) || "tick".equals(action) || "stop".equals(action) || "defaults".equals(action))
+            if (!("status".equals(action) || "tick".equals(action) || "tick-retained".equals(action) || "stop".equals(action) || "defaults".equals(action))
                     || !(args.length == 1 || ((args.length == 3 || args.length == 4) && !"stop".equals(action)))) {
                 throw new IllegalArgumentException("Fixed action or selection arguments invalid");
             }
             RoutingEngine.Selection selection = args.length >= 3
                     ? new RoutingEngine.Selection(decimal(args[1]), decimal(args[2])) : null;
             Integer microphoneId = args.length == 4 ? microphoneId(args[3]) : null;
+            if ("tick-retained".equals(action) && args.length != 3) throw new IllegalArgumentException("Retained tick requires only a DAC selection");
             if (Process.myUid() != 2000) throw new SecurityException("ADB shell UID required");
-            AndroidBackend backend = new AndroidBackend();
-            backend.requirePermission();
-            if (!"status".equals(action)) {
+            stage = "private journal lock";
+            {
                 ensureDirectory();
                 FileDescriptor fd = Os.open(LOCK, OsConstants.O_RDWR | OsConstants.O_CREAT | OsConstants.O_NOFOLLOW, FILE_MODE);
                 lockStream = new FileOutputStream(fd);
@@ -76,14 +78,16 @@ public final class InputRoutingHelper {
                 if (lock == null) throw new IllegalStateException("Another helper operation is active");
             }
             Journal store = new Journal();
-            RoutingEngine.Result result = new RoutingEngine(backend, store).run(action, selection, microphoneId);
+            stage = "audio backend or secure journal";
+            RoutingEngine.Result result = RoutingEngine.execute(action, selection, microphoneId, store, AndroidBackend::new);
             output = json(result);
             exitCode = result.ok ? 0 : 1;
         } catch (Throwable failure) {
             // Avoid Binder error text, addresses and stack traces in the application protocol.
             try {
                 output = new JSONObject().put("ok", false).put("state", "blocked")
-                        .put("message", "Shell helper unavailable (" + rootCause(failure).getClass().getSimpleName()
+                        .put("message", "Shell helper unavailable at " + (failure instanceof BackendUnavailable
+                                ? ((BackendUnavailable) failure).stage : stage) + " (" + rootCause(failure).getClass().getSimpleName()
                                 + "). No automatic retry; inspect status or reconnect.")
                         .put("idle", false).put("restorePending", unresolvedJournal())
                         .put("writeAttempts", 0).put("ownedPresets", 0);
@@ -98,6 +102,11 @@ public final class InputRoutingHelper {
         System.out.flush();
         deadline.interrupt();
         System.exit(exitCode);
+    }
+
+    private static final class BackendUnavailable extends Exception {
+        final String stage;
+        BackendUnavailable(String stage, Exception cause) { super(cause); this.stage = stage; }
     }
 
     private static int decimal(String value) {
@@ -124,41 +133,47 @@ public final class InputRoutingHelper {
         final Context context;
         final AudioManager audio;
         final UsbManager usb;
-        final Object audioService, policyService;
-        final Method javaGet, javaSet, javaClear, nativeGet, attributesRole, attributesType, attributesAddress, convert;
+        final Object audioService;
+        final IBinder policyBinder;
+        final Method javaGet, javaSet, javaClear, nativeGet, attributesRole, attributesType, attributesAddress;
         final Constructor<?> attributesConstructor;
         final int preferredRole;
 
         AndroidBackend() throws Exception {
-            if (Looper.myLooper() == null) Looper.prepareMainLooper();
-            Class<?> threadClass = Class.forName("android.app.ActivityThread");
-            Object thread = threadClass.getMethod("systemMain").invoke(null);
-            Context system = (Context) threadClass.getMethod("getSystemContext").invoke(thread);
-            context = system.createPackageContext("com.android.shell", 0);
-            if (context.getApplicationInfo().uid != 2000 || !"com.android.shell".equals(context.getPackageName())) {
-                throw new SecurityException("Shell package context unavailable");
-            }
-            audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-            usb = (UsbManager) context.getSystemService(Context.USB_SERVICE);
-            if (audio == null || usb == null) throw new IllegalStateException("Inventory services unavailable");
-            requirePermission();
-            Class<?> attributes = Class.forName("android.media.AudioDeviceAttributes");
-            attributesConstructor = attributes.getConstructor(int.class, int.class, String.class);
-            attributesRole = attributes.getMethod("getRole");
-            attributesType = attributes.getMethod("getType");
-            attributesAddress = attributes.getMethod("getAddress");
-            Class<?> audioInterface = Class.forName("android.media.IAudioService");
-            audioService = service("audio", "android.media.IAudioService$Stub");
-            javaGet = audioInterface.getMethod("getPreferredDevicesForCapturePreset", int.class);
-            javaSet = audioInterface.getMethod("setPreferredDevicesForCapturePreset", int.class, List.class);
-            javaClear = audioInterface.getMethod("clearPreferredDevicesForCapturePreset", int.class);
-            Class<?> policyInterface = Class.forName("android.media.IAudioPolicyService");
-            policyService = service("media.audio_policy", "android.media.IAudioPolicyService$Stub");
-            nativeGet = policyInterface.getMethod("getDevicesForRoleAndCapturePreset", int.class, int.class);
-            preferredRole = Class.forName("android.media.audio.common.DeviceRole").getField("PREFERRED").getInt(null);
-            if (preferredRole != 1) throw new IllegalStateException("Unexpected native device role");
-            convert = Class.forName("android.media.audio.common.AidlConversion")
-                    .getMethod("api2aidl_AudioDeviceAttributes_AudioPort", attributes);
+            String stage = "shell system context";
+            try {
+                if (Looper.myLooper() == null) Looper.prepareMainLooper();
+                Class<?> threadClass = Class.forName("android.app.ActivityThread");
+                Object thread = threadClass.getMethod("systemMain").invoke(null);
+                Context system = (Context) threadClass.getMethod("getSystemContext").invoke(thread);
+                context = system.createPackageContext("com.android.shell", 0);
+                if (context.getApplicationInfo().uid != 2000 || !"com.android.shell".equals(context.getPackageName())) {
+                    throw new SecurityException("Shell package context unavailable");
+                }
+                audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+                usb = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+                if (audio == null || usb == null) throw new IllegalStateException("Inventory services unavailable");
+                requirePermission();
+                stage = "AudioDeviceAttributes";
+                Class<?> attributes = Class.forName("android.media.AudioDeviceAttributes");
+                attributesConstructor = attributes.getConstructor(int.class, int.class, String.class);
+                attributesRole = attributes.getMethod("getRole");
+                attributesType = attributes.getMethod("getType");
+                attributesAddress = attributes.getMethod("getAddress");
+                stage = "IAudioService capture preferences";
+                Class<?> audioInterface = Class.forName("android.media.IAudioService");
+                audioService = service("audio", "android.media.IAudioService$Stub");
+                javaGet = audioInterface.getMethod("getPreferredDevicesForCapturePreset", int.class);
+                javaSet = audioInterface.getMethod("setPreferredDevicesForCapturePreset", int.class, List.class);
+                javaClear = audioInterface.getMethod("clearPreferredDevicesForCapturePreset", int.class);
+                stage = "AudioSystem capture role query";
+                Class<?> audioSystem = Class.forName("android.media.AudioSystem");
+                nativeGet = audioSystem.getMethod("getDevicesForRoleAndCapturePreset", int.class, int.class, List.class);
+                preferredRole = audioSystem.getField("DEVICE_ROLE_PREFERRED").getInt(null);
+                if (preferredRole != 1) throw new IllegalStateException("Unexpected native device role");
+                stage = "native audio policy binder";
+                policyBinder = binder("media.audio_policy");
+            } catch (Exception failure) { throw new BackendUnavailable(stage, failure); }
         }
 
         void requirePermission() {
@@ -172,8 +187,8 @@ public final class InputRoutingHelper {
                                                           Integer microphoneId) throws Exception {
             requirePermission();
             Environment before = environment(selected, retainedMicrophone, microphoneId);
-            RoutingEngine.Preference mic = preference(1);
-            RoutingEngine.Preference voice = preference(7);
+            RoutingEngine.Preference[] preferences = preferences();
+            RoutingEngine.Preference mic = preferences[0], voice = preferences[1];
             Environment after = environment(selected, retainedMicrophone, microphoneId);
             boolean stable = Objects.equals(before.bottom, after.bottom) && before.attached == after.attached
                     && before.microphoneId == after.microphoneId && Objects.equals(before.requestedMicrophone, after.requestedMicrophone)
@@ -265,72 +280,83 @@ public final class InputRoutingHelper {
             return result;
         }
 
-        private RoutingEngine.Preference preference(int preset) throws Exception {
-            List<String> nativeBefore = nativePreference(preset);
-            Object javaResult = javaGet.invoke(audioService, preset);
-            if (!(javaResult instanceof List)) throw new IllegalStateException("Java preference query unavailable");
-            List<?> attributes = (List<?>) javaResult;
-            List<String> nativeAfter = nativePreference(preset);
-            if (!Objects.equals(nativeBefore, nativeAfter)) throw new IllegalStateException("Preference changed during query");
-            if (nativeBefore == null) {
-                if (!attributes.isEmpty()) throw new IllegalStateException("Native absence conflicts with Java preference");
-                return RoutingEngine.Preference.none(); // Only two verified native NAME_NOT_FOUND results establish NONE.
-            }
-            if (nativeBefore.isEmpty() || attributes.size() != nativeBefore.size()) {
-                throw new IllegalStateException("Empty or inconsistent native preference result");
-            }
-            List<RoutingEngine.Device> devices = new ArrayList<>();
-            List<String> converted = new ArrayList<>();
-            for (Object attribute : attributes) {
-                int role = (Integer) attributesRole.invoke(attribute);
-                int type = (Integer) attributesType.invoke(attribute);
-                String address = (String) attributesAddress.invoke(attribute);
-                devices.add(new RoutingEngine.Device(role, type, address));
-                Object port = convert.invoke(null, attribute);
-                Object extension = port.getClass().getField("ext").get(port);
-                Object deviceExtension = extension.getClass().getMethod("getDevice").invoke(extension);
-                Object nativeDevice = deviceExtension.getClass().getField("device").get(deviceExtension);
-                converted.add(nativeDevice(nativeDevice));
-            }
-            if (!nativeBefore.equals(converted)) throw new IllegalStateException("Native and Java preferences disagree");
-            return RoutingEngine.Preference.devices(devices);
+        private RoutingEngine.Preference[] preferences() throws Exception {
+            String stage = "Platform capture preference query";
+            try {
+                PreferenceRead[] reads = { preferenceRead(1), preferenceRead(7) };
+                boolean absenceProof = false;
+                for (PreferenceRead read : reads) if (read.before.status != 0) absenceProof = true;
+                CaptureRoleMap before = null, after = null;
+                if (absenceProof) {
+                    stage = "Native capture-role map proof";
+                    before = captureMap();
+                    stage = "Platform capture preference cross-check";
+                    reads = new PreferenceRead[]{ preferenceRead(1), preferenceRead(7) };
+                    stage = "Native capture-role map proof";
+                    after = captureMap();
+                    if (!before.equals(after)) throw new IllegalStateException("Native capture map changed during query");
+                }
+                RoutingEngine.Preference[] result = new RoutingEngine.Preference[2];
+                stage = "Capture preference consistency proof";
+                for (int i = 0; i < 2; i++) {
+                    PreferenceRead read = reads[i];
+                    result[i] = CapturePreferenceProof.resolve(RoutingEngine.PRESETS[i], read.before, read.javaDevices,
+                            read.after, before, after);
+                }
+                return result;
+            } catch (Exception failure) { throw new RoutingEngine.QueryUnavailable(stage, failure); }
         }
 
-        /** null means native NAME_NOT_FOUND; an empty successful result remains unknown. */
-        private List<String> nativePreference(int preset) throws Exception {
-            final Object result;
-            try { result = nativeGet.invoke(policyService, preset, preferredRole); }
-            catch (InvocationTargetException failure) {
-                Throwable cause = rootCause(failure);
-                if ("android.os.ServiceSpecificException".equals(cause.getClass().getName())
-                        && cause.getClass().getField("errorCode").getInt(cause) == -2) return null;
-                throw failure;
+        private PreferenceRead preferenceRead(int preset) throws Exception {
+            CapturePreferenceProof.Read before = nativePreference(preset);
+            Object value = javaGet.invoke(audioService, preset);
+            List<RoutingEngine.Device> javaDevices = devices(value);
+            CapturePreferenceProof.Read after = nativePreference(preset);
+            if (!before.agrees(after) || !before.devices.equals(javaDevices)) {
+                throw new IllegalStateException("Capture preferences changed or disagree");
             }
-            if (result == null || !result.getClass().isArray()) throw new IllegalStateException("Native preference query unavailable");
-            int count = Array.getLength(result);
-            if (count == 0 || count > 16) throw new IllegalStateException("Native empty or oversized preference result");
-            List<String> devices = new ArrayList<>();
-            for (int i = 0; i < count; i++) devices.add(nativeDevice(Array.get(result, i)));
-            return devices;
+            return new PreferenceRead(before, javaDevices, after);
         }
 
-        private String nativeDevice(Object device) throws Exception {
-            if (device == null) throw new IllegalStateException("Native device unavailable");
-            Object description = device.getClass().getField("type").get(device);
-            int type = description.getClass().getField("type").getInt(description);
-            String connection = (String) description.getClass().getField("connection").get(description);
-            Object address = device.getClass().getField("address").get(device);
-            int tag = (Integer) address.getClass().getMethod("getTag").invoke(address);
-            int idTag = address.getClass().getField("id").getInt(null);
-            if (tag != idTag) throw new IllegalStateException("Unsupported native address union");
-            String id = (String) address.getClass().getMethod("getId").invoke(address);
-            if (connection == null || id == null || id.length() > 256) throw new IllegalStateException("Native device shape unavailable");
-            return type + ":" + connection.length() + ":" + connection + ":" + id.length() + ":" + id;
+        private CapturePreferenceProof.Read nativePreference(int preset) throws Exception {
+            List<Object> devices = new ArrayList<>();
+            Object status = nativeGet.invoke(null, preset, preferredRole, devices);
+            if (!(status instanceof Integer)) throw new IllegalStateException("Native capture status unavailable");
+            return new CapturePreferenceProof.Read((Integer) status, devices(devices));
+        }
+
+        private List<RoutingEngine.Device> devices(Object value) throws Exception {
+            if (!(value instanceof List) || ((List<?>) value).size() > 16) {
+                throw new IllegalStateException("Capture device list unavailable");
+            }
+            List<RoutingEngine.Device> result = new ArrayList<>();
+            for (Object attribute : (List<?>) value) {
+                result.add(new RoutingEngine.Device((Integer) attributesRole.invoke(attribute),
+                        (Integer) attributesType.invoke(attribute), (String) attributesAddress.invoke(attribute)));
+            }
+            if (!result.isEmpty()) RoutingEngine.Preference.devices(result);
+            return result;
+        }
+
+        private CaptureRoleMap captureMap() throws Exception {
+            return CaptureRoleMap.parse(BoundedBinderDump.read(policyBinder, STARTED + 12_000));
+        }
+        private static final class PreferenceRead {
+            final CapturePreferenceProof.Read before, after;
+            final List<RoutingEngine.Device> javaDevices;
+            PreferenceRead(CapturePreferenceProof.Read before, List<RoutingEngine.Device> javaDevices, CapturePreferenceProof.Read after) {
+                this.before = before; this.javaDevices = javaDevices; this.after = after;
+            }
+        }
+
+        private static IBinder binder(String name) throws Exception {
+            IBinder binder = (IBinder) Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, name);
+            if (binder == null || !binder.isBinderAlive()) throw new IllegalStateException("Required audio binder unavailable");
+            return binder;
         }
 
         private static Object service(String name, String stub) throws Exception {
-            IBinder binder = (IBinder) Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, name);
-            if (binder == null || !binder.isBinderAlive()) throw new IllegalStateException("Required audio binder unavailable");
+            IBinder binder = binder(name);
             return Class.forName(stub).getMethod("asInterface", IBinder.class).invoke(null, binder);
         }
 
@@ -494,8 +520,8 @@ public final class InputRoutingHelper {
         return text.toString();
     }
     private static Throwable rootCause(Throwable failure) {
-        while (failure instanceof InvocationTargetException && ((InvocationTargetException) failure).getTargetException() != null) {
-            failure = ((InvocationTargetException) failure).getTargetException();
+        while ((failure instanceof InvocationTargetException || failure instanceof BackendUnavailable) && failure.getCause() != null) {
+            failure = failure.getCause();
         }
         return failure;
     }

@@ -148,6 +148,28 @@ public final class UiScreenshotTest {
         capture(activity, null, "home-recovery", 412, 892);
     }
 
+    @Test public void connectedRecoveryShowsTheActualFailureAndKeepsRestoreReachable() throws Exception {
+        AutomationSession fake = new AutomationSession(RuntimeEnvironment.getApplication()) {
+            @Override boolean isConnected() { return true; }
+            @Override boolean needsRestoration() { return true; }
+        };
+        fake.lastRoutingResult = new RoutingProtocol.Result(false, "blocked",
+                "Native capture-role map proof unavailable. Inspect details or Stop.", false, true);
+        Field instance = AutomationSession.class.getDeclaredField("instance"); instance.setAccessible(true); instance.set(null, fake);
+        RuntimeEnvironment.setQualifiers("w320dp-h740dp-mdpi"); RuntimeEnvironment.setFontScale(1.5f);
+        MainActivity activity = start(320, 740);
+        View decor = activity.getWindow().getDecorView();
+        assertNotNull(text(decor, "Recovery needs attention"));
+        assertNotNull(text(decor, fake.lastRoutingResult.message));
+        assertNotNull(text(decor, "Stop & restore"));
+        assertFalse(((View) get(activity, "dongleRow")).isEnabled());
+        ScrollView scroll = (ScrollView) get(activity, "scroll"); scroll.setSmoothScrollingEnabled(false);
+        scroll.fullScroll(View.FOCUS_DOWN); layout(activity, 320, 740);
+        View primary = (View) get(activity, "primary"); int[] xy = new int[2]; primary.getLocationOnScreen(xy);
+        assertTrue(xy[1] >= 0 && xy[1] + primary.getHeight() <= 740);
+        capture(activity, null, "home-recovery-error-large-font", 320, 740);
+    }
+
     private Object get(AutomationActivity a, String name) throws Exception {
         Field field = AutomationActivity.class.getDeclaredField(name); field.setAccessible(true); return field.get(a);
     }
